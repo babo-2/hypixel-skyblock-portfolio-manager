@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hypixel Skyblock Portfolio Manager</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #12151A; --surface: #1A1E25; --surface-alt: #212732;
+    --border: #2B313C; --text: #E7E9EC; --text-dim: #8B93A2;
+    --amber: #D9A441; --pos: #4FAE8C; --neg: #C9634B;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    display: flex; width: 100%; height: 100vh; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: 'Inter', sans-serif; font-size: 14px;
+  }
+  #app { display: flex; width: 100%; height: 100%; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2B313C; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- sidebar ---- */
+  .sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column;
+    height: 100%; background: var(--surface); border-right: 1px solid var(--border); }
+  .side-block { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); overflow: hidden; }
+  .brand-block { height: 30vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .brand-mark { width: 44px; height: 44px; border-radius: 10px; background: linear-gradient(135deg, var(--amber), #B97F2E);
+    display: flex; align-items: center; justify-content: center; color: #14171C; }
+  .brand-name { font-weight: 600; letter-spacing: 0.2px; }
+  .brand-sub { font-size: 12px; color: var(--text-dim); }
+  .footer-block { height: 10vh; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 11px; flex-shrink: 0; }
+
+  .section-header { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; flex-shrink: 0; }
+  .section-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none;
+    color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; }
+  .chev { display: inline-flex; transition: transform 0.12s ease; }
+  .chev.collapsed { transform: rotate(-90deg); }
+  .section-count { color: var(--text-dim); font-weight: 400; font-size: 12px; }
+  .side-list { overflow-y: auto; flex: 1; padding: 0 6px 8px; }
+
+  .filter-row { display: flex; align-items: center; gap: 6px; margin: 0 12px 8px; padding: 5px 8px;
+    background: var(--surface-alt); border: 1px solid var(--border); border-radius: 4px; flex-shrink: 0; }
+  .filter-icon { color: var(--text-dim); flex-shrink: 0; }
+  .filter-input { background: none; border: none; color: var(--text); font-size: 12px; outline: none; width: 100%; font-family: inherit; }
+
+  .row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 4px;
+    cursor: pointer; position: relative; }
+  .row:hover { background: var(--surface-alt); }
+  .row.active { background: #262C36; box-shadow: inset 2px 0 0 var(--amber); }
+  .row-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--surface-alt);
+    display: flex; align-items: center; justify-content: center; color: var(--text-dim); flex-shrink: 0; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-value { font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+  .row-quote { text-align: right; flex-shrink: 0; }
+  .row-price { font-size: 12px; }
+  .row-delete { opacity: 0; flex-shrink: 0; }
+  .row:hover .row-delete { opacity: 1; }
+  .row-confirm { display: flex; gap: 4px; }
+  .empty-hint { color: var(--text-dim); font-size: 12px; padding: 12px; text-align: center; }
+
+  .ico-avatar { border-radius: 50%; border: 1px solid; display: flex; align-items: center;
+    justify-content: center; font-size: 10px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; flex-shrink: 0; }
+
+  .change-badge { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 500; }
+  .change-badge.pos { color: var(--pos); } .change-badge.neg { color: var(--neg); }
+
+  .icon-btn { background: none; border: none; color: var(--text-dim); cursor: pointer;
+    padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+  .icon-btn:hover { background: var(--surface-alt); color: var(--text); }
+  .icon-btn.danger:hover { color: var(--neg); }
+
+  /* ---- main area ---- */
+  .main-area { flex: 1; display: flex; flex-direction: column; height: 100%; min-width: 0; }
+  .tab-bar { display: flex; align-items: center; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0; padding: 6px 8px; gap: 6px; }
+  .tab-scroll { display: flex; gap: 4px; overflow-x: auto; flex: 1; }
+  .tab-pill { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px;
+    cursor: pointer; color: var(--text-dim); font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+  .tab-pill:hover { background: var(--surface-alt); }
+  .tab-pill.active { background: var(--surface-alt); color: var(--text); box-shadow: inset 0 -2px 0 var(--amber); }
+  .tab-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .tab-close { background: none; border: none; color: inherit; opacity: 0.6; cursor: pointer;
+    display: flex; padding: 1px; border-radius: 3px; }
+  .tab-close:hover { opacity: 1; background: #333c48; }
+  .new-tab-btn { flex-shrink: 0; }
+
+  .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 13px; }
+
+  /* ---- panels ---- */
+  .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel-header { display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 18px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .panel-header h2 { margin: 0; font-size: 18px; }
+  .panel-sub { margin: 2px 0 0; color: var(--text-dim); font-size: 12px; }
+  .item-header-left { display: flex; align-items: center; gap: 12px; }
+  .item-header-right { display: flex; align-items: center; gap: 10px; }
+  .item-price { font-size: 16px; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+
+  .interval-row { display: flex; gap: 6px; }
+  .interval-btn { background: var(--surface-alt); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; }
+  .interval-btn.active { color: var(--amber); border-color: var(--amber); }
+
+  .chart-wrap { flex-shrink: 0; position: relative; }
+  .chart-resize-handle { height: 10px; margin: 2px 0 0; border-radius: 3px; cursor: row-resize; position: relative; flex-shrink: 0; }
+  .chart-resize-handle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 34px; height: 3px;
+    background: var(--border); border-radius: 2px; transform: translate(-50%, -50%); }
+  .chart-resize-handle:hover::after { background: var(--amber); }
+  .timeline-slider { position: relative; height: 18px; margin: 6px 2px 0; }
+  .timeline-track { position: absolute; top: 50%; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; transform: translateY(-50%); }
+  .timeline-range { position: absolute; top: 50%; height: 4px; background: var(--amber); border-radius: 2px; transform: translateY(-50%); }
+  .timeline-handle { position: absolute; top: 50%; width: 14px; height: 14px; margin-left: -7px; background: var(--amber);
+    border: 2px solid var(--surface); border-radius: 50%; transform: translateY(-50%); cursor: grab; }
+  .timeline-handle:active { cursor: grabbing; }
+
+  .overview-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .overview-section-header h3 { margin: 0; }
+  .sort-select { font-size: 12px; padding: 5px 8px; }
+
+  .scroll-spacer { flex-shrink: 0; height: 15vh; }
+  .range-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px; }
+  .range-date { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-dim); }
+  .range-date input { padding: 5px 8px; font-size: 12px; }
+  .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; }
+  .stat-label { font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+  .stat-value { font-size: 14px; font-weight: 600; }
+  .listed-since { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .overview-section h3 { font-size: 13px; color: var(--text-dim); margin: 0 0 10px; font-weight: 600; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .overview-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+  .overview-card:hover { border-color: var(--amber); }
+  .overview-card-title { font-size: 13px; font-weight: 600; }
+  .overview-card-sub { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+
+  .holdings-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .holdings-table th { text-align: left; color: var(--text-dim); font-weight: 500; font-size: 11px;
+    padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  .holdings-table td { padding: 8px 10px; border-bottom: 1px solid #20242c; }
+  .table-item { display: flex; align-items: center; gap: 8px; }
+  .table-actions { display: flex; gap: 4px; }
+
+  .btn-primary { background: var(--amber); color: #171308; border: none; border-radius: 4px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-family: inherit; }
+  .btn-primary:hover { background: #e5b356; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 4px;
+    padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .btn-ghost:hover { background: var(--surface-alt); }
+
+  /* ---- modals ---- */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(10,12,15,0.6); display: flex;
+    align-items: center; justify-content: center; z-index: 50; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    width: 380px; max-width: 90vw; display: flex; flex-direction: column; }
+  .modal-header { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .modal-header h3 { margin: 0; font-size: 15px; }
+  .modal-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .modal-footer { padding: 14px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-item-row { display: flex; align-items: center; gap: 10px; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+  .full-width { grid-column: 1 / -1; }
+  input, select, textarea { background: var(--surface-alt); border: 1px solid var(--border); color: var(--text);
+    border-radius: 4px; padding: 7px 9px; font-size: 13px; font-family: inherit; outline: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--amber); }
+  textarea { resize: vertical; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal-root"></div>
+
+<script type="module">
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+let idSeq = 1000;
+const nextId = (prefix) => `${prefix}-${idSeq++}`;
+const round2 = (n) => Math.round(n * 100) / 100;
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const dateStrToUnix = (s) => Math.floor(new Date(`${s}T00:00:00Z`).getTime() / 1000);
+const unixToDateStr = (u) => new Date(u * 1000).toISOString().slice(0, 10);
+const fmtMoney = (n) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtCompactMoney = (n) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[c]));
+
+/* ==========================================================================
+   Market data service — requests GET /api/get_range/<item> + maybe caching?
+   ========================================================================== */
+
+class PriceService {
+  static INTERVAL_SECONDS = { "20s": 20, "5min": 5 * 60, "2h": 2 * 60 * 60, "1d": 24 * 60 * 60 };
+  static WINDOW_SECONDS = { "20s": 1*60*60, "5min": 6 * 60 * 60, "2h": 14 * 24 * 60 * 60, "1d": 180 * 24 * 60 * 60 };
+
+  static hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash);
+  }
+
+  static mulberry32(seed) {
+    let a = seed;
+    return () => {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  static basePrice(itemId) {
+    return 15 + (PriceService.hashString(itemId) % 4850) / 10;
+  }
+
+  static defaultWindow(interval) {
+    const end = Math.floor(Date.now() / 1000);
+    const span = PriceService.WINDOW_SECONDS[interval] ?? PriceService.WINDOW_SECONDS["1d"];
+    return { start: end - span, end };
+  }
+
+  // GET /api/get_range/<item>?start_range=unix&end_range=unix&interval=20s
+  static async getRange(itemId, startUnix, endUnix, interval) {
+    const step = PriceService.INTERVAL_SECONDS[interval] ?? PriceService.INTERVAL_SECONDS["1d"];
+    const params = new URLSearchParams({
+      start_date: startUnix,
+      end_date: endUnix,
+      interval: step
+    });
+    
+    const response = await fetch(`/api/get_range/${itemId}?${params}`);
+    return await response.json();
+  }
+}
+
+/* ==========================================================================
+   Item info service — storing + updating INFO
+   ========================================================================== */
+
+class ItemInfoService {
+  static INFO = {}
+  static async updateInfo(itemId) {
+    const response = await fetch("/api/get_info/"+itemId, {method: "GET",});
+    if (response.ok){
+      //{itemId, startDate, startPrice, currentPrice, currentDate, change, changeTimestamp}
+      ItemInfoService.INFO[itemId] = await response.json();
+    }else{
+      console.log("[ERROR 435] could not get info for itemId: " + itemId)
+    }
+  }
+  static async updateInfos(itemIds) {
+    const response = await fetch("/api/get_infos", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        itemIds,
+      }),
+    });
+    if (response.ok){
+      Object.assign(ItemInfoService.INFO, await response.json())
+    }else{
+      console.log("[ERROR 436] could not get infos for itemIds: " + itemIds.join(", "))
+    }
+  }
+}
+
+/* ==========================================================================
+   Return math — shared numeric helpers for TWR / MWR (XIRR) calculations
+   ========================================================================== */
+
+class ReturnMath {
+  // Solves for the annualized rate r where sum( amount / (1+r)^years ) = 0.
+  static xirr(cashflows) {
+    if (cashflows.length < 2) return null;
+    const t0 = cashflows[0].date;
+    const years = (cf) => (cf.date - t0) / (365 * 86400);
+    const npv = (r) => cashflows.reduce((sum, cf) => sum + cf.amount / Math.pow(1 + r, years(cf)), 0);
+
+    let lo = -0.99, hi = 10;
+    let prevSign = Math.sign(npv(lo));
+    let bracketLo = null, bracketHi = null;
+    const steps = 200;
+    for (let i = 1; i <= steps; i++) {
+      const r = lo + ((hi - lo) * i) / steps;
+      const s = Math.sign(npv(r));
+      if (s !== prevSign && s !== 0) { bracketLo = lo + ((hi - lo) * (i - 1)) / steps; bracketHi = r; break; }
+      prevSign = s;
+    }
+    if (bracketLo === null) return null;
+
+    let a = bracketLo, b = bracketHi;
+    for (let i = 0; i < 100; i++) {
+      const m = (a + b) / 2;
+      if (Math.sign(npv(m)) === Math.sign(npv(a))) a = m; else b = m;
+    }
+    return (a + b) / 2;
+  }
+}
+
+/* ==========================================================================
+   Portfolio domain service — all mutations return new immutable copies
+   ========================================================================== */
+//TODO - use this to render client side without having to reload
+class PortfolioService {
+  static create(name, description) {
+    return { id: nextId("pf"), name, description, holdings: [] };
+  }
+
+  static addHolding(portfolio, { itemId, date, amount, pricePerUnit }) {
+    const holding = {
+      id: nextId("hld"), itemId, date, amount, pricePerUnit,
+      totalPrice: round2(amount * pricePerUnit),
+    };
+    return { ...portfolio, holdings: [...portfolio.holdings, holding] };
+  }
+
+  static updateHolding(portfolio, holdingId, { date, amount, pricePerUnit }) {
+    return {
+      ...portfolio,
+      holdings: portfolio.holdings.map((h) =>
+        h.id === holdingId ? { ...h, date, amount, pricePerUnit, totalPrice: round2(amount * pricePerUnit) } : h
+      ),
+    };
+  }
+
+  static removeHolding(portfolio, holdingId) {
+    return { ...portfolio, holdings: portfolio.holdings.filter((h) => h.id !== holdingId) };
+  }
+
+  static uniqueItemIds(portfolio) {
+    return [...new Set(portfolio.holdings.map((h) => h.itemId))];
+  }
+
+  static totalCost(portfolio) {
+    return portfolio.holdings.reduce((sum, h) => sum + (h.amount * h.pricePerUnit), 0);
+  }
+
+  static totalValue(portfolio, infos) {
+    return portfolio.holdings.reduce((sum, h) => sum + h.amount * (infos[h.itemId]?.currentPrice ?? h.pricePerUnit), 0);
+  }
+
+  // Builds { t: totalMarketValue } price context shared by valueSeries/twrSeries/mwrSeries.
+  // start/end/interval are now caller-supplied (the timeframe is independent of the interval).
+  static async _buildContext(portfolio, start, end, interval) {
+    const uniqueItemIds = PortfolioService.uniqueItemIds(portfolio);
+    if (uniqueItemIds.length === 0) return null;
+    const results = await Promise.all(
+      uniqueItemIds.map(async (id) => {
+        const range = await PriceService.getRange(id, start, end, interval);
+        return [id, range];
+      })
+    );
+    const priceMaps = Object.fromEntries(results);
+    const timestamps = Object.keys(priceMaps[uniqueItemIds[0]]).map(Number).sort((a, b) => a - b);
+    return { priceMaps, timestamps };
+  }
+
+  // Total portfolio value over time: at each timestamp, sum amount * price
+  // for every holding already bought by that point (unbought holdings contribute 0).
+  static async valueSeries(portfolio, start, end, interval) {
+    const ctx = await PortfolioService._buildContext(portfolio, start, end, interval);
+    if (!ctx) return [];
+    return ctx.timestamps.map((t) => {
+      let value = 0;
+      portfolio.holdings.forEach((h) => {
+        if (h.date <= t) value += h.amount * (ctx.priceMaps[h.itemId]?.[t] ?? h.pricePerUnit);
+      });
+      return { t, value };
+    });
+  }
+
+  // Time-Weighted Return (%): chain-links sub-period returns, excluding the
+  // mark-to-market value of money added during each sub-period, so contribution
+  // size/timing doesn't distort the measured performance of the holdings themselves.
+  static async twrSeries(portfolio, start, end, interval) {
+    const ctx = await PortfolioService._buildContext(portfolio, start, end, interval);
+    if (!ctx) return [];
+    const { priceMaps, timestamps } = ctx;
+    const result = [];
+    let index = null; // starts once the portfolio holds something
+    let prevT = null;
+    let prevValue = 0;
+
+    timestamps.forEach((t) => {
+      let value = 0;
+      let newMoneyValue = 0;
+      portfolio.holdings.forEach((h) => {
+        if (h.date > t) return;
+        const marketVal = h.amount * (priceMaps[h.itemId]?.[t] ?? h.pricePerUnit);
+        value += marketVal;
+        if (prevT !== null && h.date > prevT && h.date <= t) newMoneyValue += marketVal;
+      });
+      if (value <= 0) { prevT = t; prevValue = value; return; }
+      if (index === null) {
+        index = 100; // base index at first invested point
+      } else if (prevValue > 0) {
+        const subReturn = (value - newMoneyValue) / prevValue - 1;
+        index *= 1 + subReturn;
+      }
+      result.push({ t, value: round2(index - 100) }); // plotted as cumulative % return
+      prevT = t; prevValue = value;
+    });
+    return result;
+  }
+
+  // Money-Weighted Return / IRR to date (%): the annualized rate that makes the
+  // NPV of all contributions plus the current mark-to-market value equal zero.
+  static async mwrSeries(portfolio, start, end, interval) {
+    const ctx = await PortfolioService._buildContext(portfolio, start, end, interval);
+    if (!ctx) return [];
+    const { priceMaps, timestamps } = ctx;
+    const sortedHoldings = [...portfolio.holdings].sort((a, b) => a.date - b.date);
+    const result = [];
+    timestamps.forEach((t) => {
+      const bought = sortedHoldings.filter((h) => h.date <= t);
+      if (bought.length === 0) return;
+      const terminalValue = bought.reduce((sum, h) => sum + h.amount * (priceMaps[h.itemId]?.[t] ?? h.pricePerUnit), 0);
+      const cashflows = [...bought.map((h) => ({ date: h.date, amount: -(h.amount * h.pricePerUnit) })), { date: t, amount: terminalValue }];
+      const r = ReturnMath.xirr(cashflows);
+      if (r !== null) result.push({ t, value: round2(r * 100) });
+    });
+    return result;
+  }
+
+  // Single annualized MWR/IRR figure "since inception", valued at today's live info.
+  static mwrSinceInception(portfolio, infos) {
+    if (portfolio.holdings.length === 0) return null;
+    const cashflows = [...portfolio.holdings]
+      .sort((a, b) => a.date - b.date)
+      .map((h) => ({ date: h.date, amount: -(h.amount * h.pricePerUnit) }));
+    cashflows.push({ date: Math.floor(Date.now() / 1000), amount: PortfolioService.totalValue(portfolio, infos) });
+    const r = ReturnMath.xirr(cashflows);
+    return r === null ? null : r * 100;
+  }
+}
+
+
+/* ==========================================================================
+   Global state
+   ========================================================================== */
+
+const ITEMS = {{ items | tojson }};
+const ITEMIDs = ITEMS.map(obj => obj.id);
+const PORTFOLIOS = {{ portfolios | tojson }};
+
+const state = {
+  items: ITEMS,
+  portfolios: PORTFOLIOS,
+  tabs: JSON.parse(localStorage.getItem("tabs")) ?? [{ id: "default-0", type: "default" }],
+  activeTabId: localStorage.getItem("activeTabId") ?? "default-0",
+};
+
+let ui;
+if (localStorage.getItem("ui")==null){
+  ui = { portfoliosCollapsed: false, itemsCollapsed: false, itemFilter: "", overviewSort: "price" };
+}else{
+  ui = JSON.parse(localStorage.getItem("ui"))
+}
+await ItemInfoService.updateInfos(ITEMIDs);
+
+const itemsById = Object.fromEntries(state.items.map((i) => [i.id, i]));
+function portfoliosById() { return Object.fromEntries(state.portfolios.map((p) => [p.id, p])); }
+function getActiveTab() { return state.tabs.find((t) => t.id === state.activeTabId) || null; }
+function getTab(tabId) { return state.tabs.find((t) => t.id === tabId) || null; }
+
+let mainChart = null;
+const INTERVALS = ["20s", "5min", "2h", "1d"];
+
+/* ==========================================================================
+   Small HTML-building helpers
+   ========================================================================== */
+
+function iconAvatarHtml(symbol, color, size) {
+  return `<div class="ico-avatar" style="width:${size}px;height:${size}px;background:${color}22;color:${color};border-color:${color}55">${escapeHtml(symbol.slice(0, 2))}</div>`;
+}
+
+function changeBadgeHtml(pct) {
+  const positive = pct >= 0;
+  const arrow = positive
+    ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
+    : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>`;
+  return `<span class="change-badge ${positive ? "pos" : "neg"}">${arrow}${positive ? "+" : ""}${pct.toFixed(2)}%</span>`;
+}
+
+function iconSvg(name) {
+  const icons = {
+    chevronDown: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>`,
+    plus: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+    x: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    trash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+    pencil: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+    check: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
+    briefcase: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>`,
+    grid: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+    search: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    wallet: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`,
+  };
+  return icons[name] || "";
+}
+
+/* ==========================================================================
+   Sidebar rendering
+   ========================================================================== */
+
+function portfolioRowHtml(p) {
+  const value = PortfolioService.totalValue(p, ItemInfoService.INFO);
+  const activeTab = getActiveTab();
+  const active = activeTab && activeTab.type === "portfolio" && activeTab.refId === p.id;
+  return `
+    <div class="row row-portfolio ${active ? "active" : ""}" data-action="open-portfolio" data-id="${p.id}">
+      <div class="row-icon">${iconSvg("briefcase")}</div>
+      <div class="row-main">
+        <div class="row-title">${escapeHtml(p.name)}</div>
+        <div class="row-sub">${PortfolioService.uniqueItemIds(p).length} items</div>
+      </div>
+      <div class="row-value">${fmtCompactMoney(value)}</div>
+      <button class="icon-btn row-delete danger" title="Delete portfolio" data-action="delete-portfolio" data-id="${p.id}">${iconSvg("trash")}</button>
+    </div>`;
+}
+
+function itemRowHtml(it) {
+  const q = ItemInfoService.INFO[it.id] ?? { currentPrice: 0, change: 0 };
+  const activeTab = getActiveTab();
+  const active = activeTab && activeTab.type === "item" && activeTab.refId === it.id;
+  return `
+    <div class="row row-item ${active ? "active" : ""}" data-action="open-item" data-id="${it.id}">
+      ${iconAvatarHtml(it.symbol, it.color, 28)}
+      <div class="row-main">
+        <div class="row-title mono">${escapeHtml(it.symbol)}</div>
+        <div class="row-sub">${escapeHtml(it.name)}</div>
+      </div>
+      <div class="row-quote">
+        <div class="row-price mono">${fmtMoney(q.currentPrice)}</div>
+        ${changeBadgeHtml(q.change)}
+      </div>
+    </div>`;
+}
+
+function renderPortfolioRows() {
+  const container = document.getElementById("portfolio-rows");
+  if (!container) return;
+  container.innerHTML = state.portfolios.length
+    ? state.portfolios.map(portfolioRowHtml).join("")
+    : `<div class="empty-hint">No portfolios yet.</div>`;
+}
+
+function renderItemRows() {
+  const container = document.getElementById("item-rows");
+  if (!container) return;
+  const f = ui.itemFilter.trim().toLowerCase();
+  const filtered = f
+    ? state.items.filter((it) => it.symbol.toLowerCase().includes(f) || it.name.toLowerCase().includes(f))
+    : state.items;
+  container.innerHTML = filtered.map(itemRowHtml).join("");
+}
+
+function renderSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  sidebar.innerHTML = `
+    <div class="brand-block">
+      <div class="brand-mark">${iconSvg("wallet")}</div>
+      <div class="brand-name">Portfolio manager</div>
+      <div class="brand-sub">placeholder</div>
+    </div>
+
+    <div class="side-block" style="height:20vh">
+      <div class="section-header">
+        <button class="section-toggle" data-action="toggle-portfolios">
+          <span class="chev ${ui.portfoliosCollapsed ? "collapsed" : ""}">${iconSvg("chevronDown")}</span>
+          <span>Portfolios</span>
+          <span class="section-count">${state.portfolios.length}</span>
+        </button>
+        <button class="icon-btn" title="New portfolio" data-action="open-create-portfolio">${iconSvg("plus")}</button>
+      </div>
+      ${ui.portfoliosCollapsed ? "" : `<div class="side-list" id="portfolio-rows"></div>`}
+    </div>
+
+    <div class="side-block" style="height:40vh">
+      <div class="section-header">
+        <button class="section-toggle" data-action="toggle-items">
+          <span class="chev ${ui.itemsCollapsed ? "collapsed" : ""}">${iconSvg("chevronDown")}</span>
+          <span>Items</span>
+          <span class="section-count">${state.items.length}</span>
+        </button>
+      </div>
+      ${ui.itemsCollapsed ? "" : `
+        <div class="filter-row">
+          <span class="filter-icon">${iconSvg("search")}</span>
+          <input class="filter-input" id="item-filter-input" placeholder="Filter items…" value="${escapeHtml(ui.itemFilter)}">
+        </div>
+        <div class="side-list" id="item-rows"></div>
+      `}
+    </div>
+
+    <div class="footer-block">v0.1 · mock data</div>
+  `;
+  if (!ui.portfoliosCollapsed) renderPortfolioRows();
+  if (!ui.itemsCollapsed) {
+    renderItemRows();
+    document.getElementById("item-filter-input").addEventListener("input", (e) => {
+      ui.itemFilter = e.target.value;
+      localStorage.setItem("ui", JSON.stringify(ui))
+      renderItemRows();
+    });
+  }
+}
+
+/* ==========================================================================
+   Tab bar rendering
+   ========================================================================== */
+
+function tabLabel(tab) {
+  if (tab.type === "default") return "Overview";
+  if (tab.type === "item") return itemsById[tab.refId]?.symbol ?? "Unknown";
+  return portfoliosById()[tab.refId]?.name ?? "Unknown";
+}
+
+function tabIconHtml(tab) {
+  if (tab.type === "default") return iconSvg("grid");
+  if (tab.type === "item") {
+    const it = itemsById[tab.refId];
+    return it ? `<span class="tab-dot" style="background:${it.color}"></span>` : "";
+  }
+  return iconSvg("briefcase");
+}
+
+function renderTabBar() {
+  const bar = document.getElementById("tab-bar");
+  bar.innerHTML = `
+    <div class="tab-scroll">
+      ${state.tabs.map((tab) => `
+        <div class="tab-pill ${tab.id === state.activeTabId ? "active" : ""}" data-action="select-tab" data-id="${tab.id}">
+          ${tabIconHtml(tab)}
+          <span class="tab-label">${escapeHtml(tabLabel(tab))}</span>
+          <button class="tab-close" data-action="close-tab" data-id="${tab.id}">${iconSvg("x")}</button>
+        </div>
+      `).join("")}
+    </div>
+    <button class="icon-btn new-tab-btn" title="New tab" data-action="new-tab">${iconSvg("plus")}</button>
+  `;
+}
+
+/* ==========================================================================
+   Chart mounting (Chart.js)
+   ========================================================================== */
+
+function tickFormatter(t, interval) {
+  const d = new Date(t * 1000);
+  if (interval === "5min") return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function mountLineChart(canvasId, points, interval, lineColor, valueFormatter) {
+  const fmt = valueFormatter ?? fmtMoney;
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (mainChart) { mainChart.destroy(); mainChart = null; }
+  if (points.length === 1) {
+    const step = PriceService.INTERVAL_SECONDS[interval] ?? 86400;
+
+    points = [
+      {
+        t: points[0].t - step,
+        y: points[0].y,
+      },
+      {
+        t: points[0].t + step,
+        y: points[0].y,
+      },
+    ];
+  }
+  const labels = points.map((p) => tickFormatter(p.t, interval));
+  const raw = points.map((p) => p.t);
+  const values = points.map((p) => p.y);
+  mainChart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: { labels, datasets: [{ data: values, borderColor: lineColor, backgroundColor: "transparent", borderWidth: 1.75, pointRadius: 0, tension: 0.2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#1A1E25", borderColor: "#2B313C", borderWidth: 1, titleColor: "#8B93A2", bodyColor: "#E7E9EC",
+          callbacks: {
+            title: (items) => new Date(raw[items[0].dataIndex] * 1000).toLocaleString(),
+            label: (item) => fmt(item.parsed.y),
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#5A6270", font: { size: 11 }, maxTicksLimit: 8 } },
+        y: { grid: { color: "#232935" }, ticks: { color: "#5A6270", font: { size: 11 }, callback: (v) => fmt(v) } },
+      },
+    },
+  });
+}
+
+function rangeControlsHtml(tab, minUnix) {
+  const today = todayStr();
+  const maxUnix = Math.floor(Date.now() / 1000);
+  const startPct = ((tab.rangeStart - minUnix) / (maxUnix - minUnix)) * 100;
+  const endPct = (((tab.rangeEnd - 86399) - minUnix) / (maxUnix - minUnix)) * 100;
+  return `
+    <div class="range-row">
+      <div class="interval-row">
+        ${INTERVALS.map((iv) => `<button class="interval-btn ${tab.interval === iv ? "active" : ""}" data-action="set-interval" data-tab-id="${tab.id}" data-interval="${iv}">${iv}</button>`).join("")}
+      </div>
+      <label class="range-date">From
+        <input type="date" id="range-start-input" data-action-change="set-range-start" data-tab-id="${tab.id}" value="${unixToDateStr(tab.rangeStart)}" min="${unixToDateStr(minUnix)}" max="${today}">
+      </label>
+      <label class="range-date">To
+        <input type="date" id="range-end-input" data-action-change="set-range-end" data-tab-id="${tab.id}" value="${unixToDateStr(tab.rangeEnd)}" min="${unixToDateStr(minUnix)}" max="${today}">
+      </label>
+    </div>
+    <div class="timeline-slider" data-timeline-tab="${tab.id}" data-min="${minUnix}" data-max="${maxUnix}">
+      <div class="timeline-track"></div>
+      <div class="timeline-range" style="left:${startPct}%; width:${Math.max(0, endPct - startPct)}%"></div>
+      <div class="timeline-handle" data-handle="start" style="left:${startPct}%"></div>
+      <div class="timeline-handle" data-handle="end" style="left:${endPct}%"></div>
+    </div>`;
+}
+
+/* ==========================================================================
+   Panels - renderers
+   ========================================================================== */
+
+const GRAPH_MODES = [
+  ["value", "Total money", fmtMoney],
+  ["twr", "TWR", (v) => `${v.toFixed(1)}%`],
+  ["mwr", "MWR (IRR)", (v) => `${v.toFixed(1)}%`],
+];
+function graphModeControlsHtml(tab) {
+  const mode = tab.graphMode ?? "value";
+  return `<div class="interval-row">${GRAPH_MODES.map(([m, label]) =>
+    `<button class="interval-btn ${mode === m ? "active" : ""}" data-action="set-graph-mode" data-tab-id="${tab.id}" data-mode="${m}">${label}</button>`
+  ).join("")}</div>`;
+}
+
+/* added, before renderDefaultPanel */
+const OVERVIEW_SORT_FIELDS = [
+  ["price", "Price"], ["change", "Change %"],
+  ["sellMovingWeek", "Sell MA (7d)"], ["buyMovingWeek", "Buy MA (7d)"],
+  ["sellVolume", "Sell Volume"], ["buyVolume", "Buy Volume"],
+  ["sellOrders", "Sell Orders"], ["buyOrders", "Buy Orders"],
+];
+
+function sortedItemsForOverview() {
+  const field = ui.overviewSort;
+  return [...state.items].sort((a, b) => {
+    const qa = ItemInfoService.INFO[a.id] ?? {}, qb = ItemInfoService.INFO[b.id] ?? {};
+    const va = field === "price" ? qa.currentPrice ?? 0 : qa[field] ?? 0;
+    const vb = field === "price" ? qb.currentPrice ?? 0 : qb[field] ?? 0;
+    return vb - va; // descending
+  });
+}
+
+function renderDefaultPanel() {
+  return `
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Overview</h2>
+          <p class="panel-sub">Pick a portfolio or an item to open it in its own tab.</p>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="overview-section">
+          <div class="overview-section-header">
+            <h3>Items</h3>
+            <select class="sort-select" data-action-change="set-overview-sort">
+              ${OVERVIEW_SORT_FIELDS.map(([field, label]) => `<option value="${field}" ${ui.overviewSort === field ? "selected" : ""}>Sort by ${label}</option>`).join("")}
+            </select>
+          </div>
+          <div class="card-grid">
+            ${state.portfolios.map((p) => `
+              <div class="overview-card" data-action="open-portfolio" data-id="${p.id}">
+                ${iconSvg("briefcase")}
+                <div class="overview-card-title">${escapeHtml(p.name)}</div>
+                <div class="overview-card-sub">${PortfolioService.uniqueItemIds(p).length} items · ${fmtCompactMoney(PortfolioService.totalValue(p, ItemInfoService.INFO))}</div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div class="overview-section">
+          <h3>Items</h3>
+          <div class="card-grid">
+            ${sortedItemsForOverview().map((it) => {
+              const q = ItemInfoService.INFO[it.id] ?? { currentPrice: 0, change: 0 };
+              return `
+                <div class="overview-card" data-action="open-item" data-id="${it.id}">
+                  ${iconAvatarHtml(it.symbol, it.color, 26)}
+                  <div class="overview-card-title mono">${escapeHtml(it.symbol)}</div>
+                  <div class="overview-card-sub">${fmtMoney(q.currentPrice)} ${changeBadgeHtml(q.change)}</div>
+                </div>`;
+            }).join("")}
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function renderPortfolioPanel(tab) {
+  const portfolio = portfoliosById()[tab.refId];
+  const interval = tab.interval ?? "1d";
+  const mode = tab.graphMode ?? "value";
+  const cost = PortfolioService.totalCost(portfolio);
+  const value = PortfolioService.totalValue(portfolio, ItemInfoService.INFO);
+  const gainPct = cost ? ((value - cost) / cost) * 100 : 0;
+  const hasHoldings = portfolio.holdings.length > 0;
+  const mwrInception = hasHoldings ? PortfolioService.mwrSinceInception(portfolio, ItemInfoService.INFO) : null;
+
+  let series = [];
+  let valueFormatter = fmtMoney;
+  let lineColor = gainPct >= 0 ? "#4FAE8C" : "#C9634B";
+  if (hasHoldings) {
+    if (mode === "value") {
+      series = await PortfolioService.valueSeries(portfolio, tab.rangeStart, tab.rangeEnd, interval);
+      valueFormatter = fmtMoney;
+    } else if (mode === "twr") {
+      series = await PortfolioService.twrSeries(portfolio, tab.rangeStart, tab.rangeEnd, interval);
+      valueFormatter = (v) => `${v.toFixed(1)}%`;
+      lineColor = (series[series.length - 1]?.value ?? 0) >= 0 ? "#4FAE8C" : "#C9634B";
+    } else {
+      series = await PortfolioService.mwrSeries(portfolio, tab.rangeStart, tab.rangeEnd, interval);
+      valueFormatter = (v) => `${v.toFixed(1)}%`;
+      lineColor = (series[series.length - 1]?.value ?? 0) >= 0 ? "#4FAE8C" : "#C9634B";
+    }
+  }
+  const points = series.map((p) => ({ t: p.t, y: round2(p.value) }));
+
+  const rowsHtml = portfolio.holdings.map((h) => {
+    const it = itemsById[h.itemId];
+    const q = ItemInfoService.INFO[h.itemId] ?? { currentPrice: 0 };
+    const curValue = h.amount * (q?.currentPrice ?? h.pricePerUnit);
+    const total = h.amount * h.pricePerUnit;
+    const gain = total ? ((curValue - total) / total) * 100 : 0;
+    return `
+      <tr>
+        <td><div class="table-item">${iconAvatarHtml(it?.symbol ?? "?", it?.color ?? "#888", 22)}<span class="mono">${escapeHtml(it?.symbol ?? h.itemId)}</span></div></td>
+        <td>${unixToDateStr(h.date)}</td>
+        <td class="mono">${h.amount}</td>
+        <td class="mono">${fmtMoney(h.pricePerUnit)}</td>
+        <td class="mono">${fmtMoney(total)}</td>
+        <td class="mono">${fmtMoney(curValue)}</td>
+        <td>${changeBadgeHtml(gain)}</td>
+        <td>
+          <div class="table-actions">
+            <button class="icon-btn" title="Edit" data-action="edit-holding" data-portfolio-id="${portfolio.id}" data-holding-id="${h.id}">${iconSvg("pencil")}</button>
+            <button class="icon-btn danger" title="Remove" data-action="remove-holding" data-portfolio-id="${portfolio.id}" data-holding-id="${h.id}">${iconSvg("trash")}</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join("");
+
+  const chartSection = hasHoldings ? `
+    <div class="stat-row">
+      <div class="stat-box"><div class="stat-label">MWR (IRR) since inception</div><div class="stat-value">${mwrInception === null ? "—" : `${mwrInception >= 0 ? "+" : ""}${mwrInception.toFixed(1)}%`}</div></div>
+    </div>
+    ${graphModeControlsHtml(tab)}
+    ${rangeControlsHtml(tab, Math.min(...portfolio.holdings.map((h) => h.date)))}
+    <div class="chart-wrap" id="chart-wrap" style="height:${tab.chartHeight ?? 320}px"><canvas id="main-chart"></canvas></div>
+    <div class="chart-resize-handle" data-resize-tab="${tab.id}" title="Drag to resize"></div>
+  ` : "";
+
+  return {
+    html: `
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>${escapeHtml(portfolio.name)}</h2>
+            <p class="panel-sub">${escapeHtml(portfolio.description) || "No description."}</p>
+          </div>
+          <div class="item-header-right">
+            <div class="item-price mono">${fmtMoney(value)}</div>
+            ${changeBadgeHtml(gainPct)}
+          </div>
+        </div>
+        <div class="panel-body">
+          ${chartSection}
+          ${!hasHoldings
+            ? `<div class="empty-hint">No items yet. Open an item and use "Add to portfolio".</div>`
+            : `<table class="holdings-table">
+                <thead><tr><th>Item</th><th>Date</th><th>Amount</th><th>Buy price</th><th>Total</th><th>Current</th><th>Gain</th><th></th></tr></thead>
+                <tbody>${rowsHtml}</tbody>
+              </table>`}
+            <div class="scroll-spacer"></div>
+        </div>
+      </div>`,
+    points, interval, valueFormatter, lineColor, hasHoldings,
+  };
+}
+
+const ITEM_GRAPH_MODES = [["total", "Total"], ["percentage", "Percentage"]];
+
+function itemGraphModeControlsHtml(tab) {
+  const mode = tab.itemGraphMode ?? "total";
+  return `<div class="interval-row">${ITEM_GRAPH_MODES.map(([m, label]) =>
+    `<button class="interval-btn ${mode === m ? "active" : ""}" data-action="set-item-graph-mode" data-tab-id="${tab.id}" data-mode="${m}">${label}</button>`
+  ).join("")}</div>`;
+}
+
+async function renderMainPanel() {
+  const container = document.getElementById("main-panel");
+  const tab = getActiveTab();
+
+  if (!tab) {
+    container.innerHTML = `<div class="empty-state">Open an item or a portfolio to get started.</div>`;
+    if (mainChart) { mainChart.destroy(); mainChart = null; }
+    return;
+  }
+
+  if (tab.type === "default") {
+    container.innerHTML = renderDefaultPanel();
+    if (mainChart) { mainChart.destroy(); mainChart = null; }
+    return;
+  }
+
+  if (tab.type === "item") {
+    console.log("render Item Panel")
+    const item = itemsById[tab.refId];
+    const interval = tab.interval ?? "1d";
+    const mode = tab.itemGraphMode ?? "total";
+    const info = ItemInfoService.INFO[item.id] ?? { currentPrice: 0, change: 0, startDate: 0 };
+    const raw = await PriceService.getRange(item.id, tab.rangeStart, tab.rangeEnd, interval);
+    
+    const rawPoints = Object.entries(raw).map(([t, price]) => ({ t: Number(t), y: price }));
+    const first = rawPoints[0]?.y ?? 0;
+
+    let points, valueFormatter, lineColor;
+    if (mode === "percentage") {
+      points = rawPoints.map((p) => ({ t: p.t, y: first ? round2(((p.y - first) / first) * 100) : 0 }));
+      valueFormatter = (v) => `${v.toFixed(1)}%`;
+    } else {
+      points = rawPoints;
+      valueFormatter = fmtMoney;
+    }
+    const last = points[points.length - 1]?.y ?? 0;
+    lineColor = last >= (mode === "percentage" ? 0 : first) ? "#4FAE8C" : "#C9634B";
+
+
+    container.innerHTML = `
+      <div class="panel">
+        <div class="panel-header item-header">
+          <div class="item-header-left">
+            ${iconAvatarHtml(item.symbol, item.color, 34)}
+            <div>
+              <h2 class="mono">${escapeHtml(item.symbol)}</h2>
+              <p class="panel-sub">${escapeHtml(item.name)}</p>
+              <p class="listed-since">Listed since ${unixToDateStr(info.startDate)}</p>
+            </div>
+          </div>
+          <div class="item-header-right">
+            <div class="item-price mono">${fmtMoney(info.currentPrice)}</div>
+            ${changeBadgeHtml(info.change)}
+            <button class="btn-primary" data-action="add-to-portfolio" data-item-id="${item.id}">${iconSvg("plus")} Add to portfolio</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          ${itemGraphModeControlsHtml(tab)}
+          ${rangeControlsHtml(tab, info.startDate)}
+          <div class="chart-wrap" id="chart-wrap" style="height:${tab.chartHeight ?? 320}px"><canvas id="main-chart"></canvas></div>
+          <div class="chart-resize-handle" data-resize-tab="${tab.id}" title="Drag to resize"></div>
+          <div class="stat-row">
+            <div class="stat-box"><div class="stat-label">Sell MA (7d)</div><div class="stat-value mono">${fmtMoney(info.sellMovingWeek)}</div></div>
+            <div class="stat-box"><div class="stat-label">Buy MA (7d)</div><div class="stat-value mono">${fmtMoney(info.buyMovingWeek)}</div></div>
+            <div class="stat-box"><div class="stat-label">Sell Volume</div><div class="stat-value mono">${info.sellVolume.toLocaleString()}</div></div>
+            <div class="stat-box"><div class="stat-label">Buy Volume</div><div class="stat-value mono">${info.buyVolume.toLocaleString()}</div></div>
+            <div class="stat-box"><div class="stat-label">Sell Orders</div><div class="stat-value mono">${info.sellOrders.toLocaleString()}</div></div>
+            <div class="stat-box"><div class="stat-label">Buy Orders</div><div class="stat-value mono">${info.buyOrders.toLocaleString()}</div></div>
+          </div>
+          <div class="scroll-spacer"></div>
+        </div>
+      </div>`;
+    mountLineChart("main-chart", points, interval, lineColor, valueFormatter);
+    return;
+  }
+  if (tab.type === "portfolio") {
+    const result = await renderPortfolioPanel(tab);
+    container.innerHTML = result.html;
+    if (result.hasHoldings) {
+      mountLineChart("main-chart", result.points, result.interval, result.lineColor, result.valueFormatter);
+    } else if (mainChart) {
+      mainChart.destroy(); mainChart = null;
+    }
+    return;
+  }
+}
+
+async function renderAll() {
+  renderSidebar();
+  renderTabBar();
+  await renderMainPanel();
+}
+
+/* ==========================================================================
+   Tab management
+   ========================================================================== */
+
+async function openItemTab(itemId) {
+  const existing = state.tabs.find((t) => t.type === "item" && t.refId === itemId);
+  if (existing) { state.activeTabId = existing.id;localStorage.setItem("activeTabId", existing.id); }
+  else {
+    const { start, end } = PriceService.defaultWindow("1d");
+    const tab = { id: nextId("tab"), type: "item", refId: itemId, interval: "1d", rangeStart: start, rangeEnd: end, itemGraphMode: "total" };
+    state.tabs.push(tab);
+    state.activeTabId = tab.id;
+    localStorage.setItem("activeTabId", tab.id);
+    localStorage.setItem("tabs", JSON.stringify(state.tabs));
+  }
+  
+  await renderAll();
+}
+
+async function openPortfolioTab(portfolioId) {
+  const existing = state.tabs.find((t) => t.type === "portfolio" && t.refId === portfolioId);
+  if (existing) { state.activeTabId = existing.id;localStorage.setItem("activeTabId", existing.id); }
+  else {
+    const { start, end } = PriceService.defaultWindow("1d");
+    const tab = { id: nextId("tab"), type: "portfolio", refId: portfolioId, interval: "1d", rangeStart: start, rangeEnd: end, graphMode: "value" };
+    state.tabs.push(tab);
+    state.activeTabId = tab.id;
+    localStorage.setItem("activeTabId", tab.id);
+    localStorage.setItem("tabs", JSON.stringify(state.tabs));
+  }
+  await renderAll();
+}
+
+async function openNewDefaultTab() {
+  const tab = { id: nextId("tab"), type: "default" };
+  state.tabs.push(tab);
+  state.activeTabId = tab.id;
+  localStorage.setItem("activeTabId", tab.id);
+  localStorage.setItem("tabs", JSON.stringify(state.tabs));
+  await renderAll();
+}
+
+async function closeTab(tabId) {
+  const idx = state.tabs.findIndex((t) => t.id === tabId);
+  if (idx === -1) return;
+  state.tabs.splice(idx, 1);
+  if (tabId === state.activeTabId) {
+    const fallback = state.tabs[idx] ?? state.tabs[idx - 1] ?? state.tabs[0] ?? null;
+    state.activeTabId = fallback ? fallback.id : null;
+    localStorage.setItem("activeTabId", state.activeTabId);
+  }
+  localStorage.setItem("tabs", JSON.stringify(state.tabs));
+  await renderAll();
+}
+
+/* ==========================================================================
+   Portfolio / holding CRUD
+   ========================================================================== */
+
+async function createPortfolio(name, description) {
+  const response = await fetch("/api/portfolios", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+      description,
+    }),
+  });
+
+  const portfolio = await response.json();
+
+  state.portfolios.push(portfolio);
+  await renderAll();
+}
+
+async function deletePortfolio(portfolioId) {
+  await fetch(`/api/portfolios/${portfolioId}`,{method: "DELETE",});
+  state.portfolios = state.portfolios.filter((p) => p.id !== portfolioId);
+  state.tabs = state.tabs.filter((t) => !(t.type === "portfolio" && t.refId === portfolioId));
+  const tab = getActiveTab();
+  if (!tab) {state.activeTabId = state.tabs[0]?.id ?? null;localStorage.setItem(activeTabId);}
+  localStorage.setItem("tabs", JSON.stringify(state.tabs));
+  await renderAll();
+}
+
+async function removeHolding(portfolioId, holdingId) {
+  await fetch(`/api/portfolios/${portfolioId}/holdings/${holdingId}`,{method: "DELETE",});
+  state.portfolios = state.portfolios.map((p) => (p.id === portfolioId ? PortfolioService.removeHolding(p, holdingId) : p));
+  await renderAll();
+}
+
+async function submitHolding(data) {
+  const response = await fetch(
+    `/api/portfolios/${data.portfolioId}/holdings` + (data.mode === "add" ? "":("/"+data.holdingId)),
+    {
+      method: data.mode === "add" ? "POST":"PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        itemId: data.itemId,
+        date: data.date,
+        amount: data.amount,
+        pricePerUnit: data.pricePerUnit,
+        ...(data.mode === "edit" && { holdingId: data.holdingId })
+      }),
+    }
+  );
+
+  const holding = await response.json();
+
+  // Update local state with the backend result
+  state.portfolios = state.portfolios.map((p) => {
+    if (p.id !== data.portfolioId) return p;
+
+    return {
+      ...p,
+      holdings: [...p.holdings, holding],
+    };
+  });
+
+  closeModal();
+  await renderAll();
+}
+
+/* ==========================================================================
+   Modals
+   ========================================================================== */
+
+function closeModal() {
+  document.getElementById("modal-root").innerHTML = "";
+}
+
+function openCreatePortfolioModal() {
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-header"><h3>New portfolio</h3><button class="icon-btn" data-action="close-modal">${iconSvg("x")}</button></div>
+        <div class="modal-body">
+          <label class="full-width"><span>Name</span><input id="new-pf-name" placeholder="e.g. Growth Picks" autofocus></label>
+          <label class="full-width"><span>Description</span><textarea id="new-pf-desc" rows="3" placeholder="What is this portfolio for?"></textarea></label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-ghost" data-action="close-modal">Cancel</button>
+          <button class="btn-primary" id="new-pf-submit" disabled>Create</button>
+        </div>
+      </div>
+    </div>`;
+  const nameInput = document.getElementById("new-pf-name");
+  const submitBtn = document.getElementById("new-pf-submit");
+  nameInput.addEventListener("input", () => { submitBtn.disabled = nameInput.value.trim().length === 0; });
+  submitBtn.addEventListener("click", async () => {
+    if (nameInput.value.trim().length === 0) return;
+    await createPortfolio(nameInput.value.trim(), document.getElementById("new-pf-desc").value.trim());
+    closeModal();
+  });
+  document.getElementById("modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
+}
+
+function openHoldingModal({ mode, itemId, portfolioId, holding }) {
+  const item = itemsById[itemId];
+  const root = document.getElementById("modal-root");
+  const initialAmount = holding ? holding.amount : "";
+  const initialPpu = holding ? holding.pricePerUnit : "";
+  const initialTotal = holding ? round2(holding.amount * holding.pricePerUnit) : "";
+  const initialDate = holding ? unixToDateStr(holding.date) : todayStr();
+
+  const portfolioSelectHtml = mode === "add" ? `
+    <label class="full-width"><span>Portfolio</span>
+      <select id="buy-portfolio">
+        ${state.portfolios.map((p) => `<option value="${p.id}" ${p.id === portfolioId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+      </select>
+    </label>` : "";
+
+  root.innerHTML = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-header"><h3>${mode === "add" ? "Add to portfolio" : "Edit holding"}</h3><button class="icon-btn" data-action="close-modal">${iconSvg("x")}</button></div>
+        <div class="modal-body">
+          <div class="modal-item-row">${iconAvatarHtml(item.symbol, item.color, 28)}<div><div class="row-title mono">${escapeHtml(item.symbol)}</div><div class="row-sub">${escapeHtml(item.name)}</div></div></div>
+          ${portfolioSelectHtml}
+          <div class="form-grid">
+            <label><span>Buy date</span><input type="date" id="buy-date" value="${initialDate}"></label>
+            <label><span>Amount</span><input type="number" min="0" step="any" id="buy-amount" placeholder="0" value="${initialAmount}"></label>
+            <label><span>Total price</span><input type="number" min="0" step="any" id="buy-total" placeholder="0.00" value="${initialTotal}"></label>
+            <label><span>Price per unit</span><input type="number" min="0" step="any" id="buy-ppu" placeholder="0.00" value="${initialPpu}"></label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-ghost" data-action="close-modal">Cancel</button>
+          <button class="btn-primary" id="holding-submit" disabled>${mode === "add" ? "Add" : "Save changes"}</button>
+        </div>
+      </div>
+    </div>`;
+
+  const dateInput = document.getElementById("buy-date");
+  const amountInput = document.getElementById("buy-amount");
+  const totalInput = document.getElementById("buy-total");
+  const ppuInput = document.getElementById("buy-ppu");
+  const submitBtn = document.getElementById("holding-submit");
+
+  function validate() {
+    const ok = dateInput.value && parseFloat(amountInput.value) > 0 && parseFloat(ppuInput.value) > 0;
+    submitBtn.disabled = !ok;
+  }
+
+  // Amount updates Total price (price-per-unit stays fixed).
+  amountInput.addEventListener("input", () => {
+    const amt = parseFloat(amountInput.value);
+    const ppu = parseFloat(ppuInput.value);
+    if (!isNaN(amt) && amt > 0 && !isNaN(ppu) && ppu > 0) totalInput.value = round2(amt * ppu);
+    validate();
+  });
+  // Total price updates price-per-unit (amount stays fixed).
+  totalInput.addEventListener("input", () => {
+    const total = parseFloat(totalInput.value);
+    const amt = parseFloat(amountInput.value);
+    if (!isNaN(total) && !isNaN(amt) && amt > 0) ppuInput.value = round2(total / amt);
+    validate();
+  });
+  // Price-per-unit updates Total price (amount stays fixed).
+  ppuInput.addEventListener("input", () => {
+    const ppu = parseFloat(ppuInput.value);
+    const amt = parseFloat(amountInput.value);
+    if (!isNaN(ppu) && amt > 0 && !isNaN(amt)) totalInput.value = round2(ppu * amt);
+    validate();
+  });
+  dateInput.addEventListener("input", validate);
+
+  submitBtn.addEventListener("click", async () => {
+    const targetPortfolioId = mode === "add" ? document.getElementById("buy-portfolio").value : portfolioId;
+    await submitHolding({
+      mode, portfolioId: targetPortfolioId, itemId,
+      holdingId: holding?.id, date: dateStrToUnix(dateInput.value),
+      amount: parseFloat(amountInput.value), pricePerUnit: parseFloat(ppuInput.value),
+    });
+  });
+  document.getElementById("modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
+}
+
+/* ==========================================================================
+   Event delegation
+   ========================================================================== */
+
+function confirmDeletePortfolio(portfolioId) {
+  const row = document.querySelector(`.row-portfolio[data-id="${portfolioId}"]`);
+  if (!row) return;
+  const deleteBtn = row.querySelector(".row-delete");
+  deleteBtn.outerHTML = `
+    <div class="row-confirm" data-confirm-id="${portfolioId}">
+      <button class="icon-btn danger" data-action="confirm-delete-portfolio" data-id="${portfolioId}">${iconSvg("check")}</button>
+      <button class="icon-btn" data-action="cancel-delete-portfolio" data-id="${portfolioId}">${iconSvg("x")}</button>
+    </div>`;
+}
+
+document.addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.dataset.action;
+  const id = el.dataset.id;
+
+  switch (action) {
+    case "open-item": await openItemTab(id); break;
+    case "open-portfolio": await openPortfolioTab(id); break;
+    case "select-tab": state.activeTabId = id;localStorage.setItem("activeTabId", state.activeTabId); await renderAll(); break;
+    case "close-tab": await closeTab(id); break;
+    case "new-tab": await openNewDefaultTab(); break;
+    case "toggle-portfolios": ui.portfoliosCollapsed = !ui.portfoliosCollapsed; renderSidebar();localStorage.setItem("ui", JSON.stringify(ui)); break;
+    case "toggle-items": ui.itemsCollapsed = !ui.itemsCollapsed; renderSidebar();localStorage.setItem("ui", JSON.stringify(ui)); break;
+    case "open-create-portfolio": openCreatePortfolioModal(); break;
+    case "delete-portfolio": e.stopPropagation(); confirmDeletePortfolio(id); break;
+    case "confirm-delete-portfolio": e.stopPropagation(); await deletePortfolio(id); break;
+    case "cancel-delete-portfolio": e.stopPropagation(); renderPortfolioRows(); break;
+    case "add-to-portfolio": openHoldingModal({ mode: "add", itemId: el.dataset.itemId }); break;
+    case "edit-holding": {
+      const pfId = el.dataset.portfolioId;
+      const hId = el.dataset.holdingId;
+      const portf = portfoliosById()[pfId];
+      const holding = portf.holdings.find((h) => h.id == hId);
+      openHoldingModal({ mode: "edit", itemId: holding.itemId, portfolioId: pfId, holding });
+      break;
+    }
+    case "remove-holding": await removeHolding(el.dataset.portfolioId, el.dataset.holdingId); break;
+    case "set-interval": {
+      const tab = getTab(el.dataset.tabId);
+      if (tab) tab.interval = el.dataset.interval;
+      await renderAll();
+      break;
+    }
+    case "set-graph-mode": {
+      const tab = getTab(el.dataset.tabId);
+      if (tab) tab.graphMode = el.dataset.mode;
+      renderAll();
+      break;
+    }
+    case "set-item-graph-mode": {
+      const tab = getTab(el.dataset.tabId);
+      if (tab) tab.itemGraphMode = el.dataset.mode;
+      renderAll();
+      break;
+    }
+    case "close-modal": closeModal(); break;
+  }
+});
+
+
+// Dragging: the timeline slider's start/end handles, and the chart's resize handle.
+document.addEventListener("mousedown", (e) => {
+  const handle = e.target.closest(".timeline-handle");
+  if (handle) {
+    e.preventDefault();
+    const slider = handle.closest(".timeline-slider");
+    const tab = getTab(slider.dataset.timelineTab);
+    if (!tab) return;
+    const min = Number(slider.dataset.min);
+    const max = Number(slider.dataset.max);
+    const which = handle.dataset.handle;
+    const rangeBar = slider.querySelector(".timeline-range");
+    const startInput = document.getElementById("range-start-input");
+    const endInput = document.getElementById("range-end-input");
+
+    const redrawBar = () => {
+      const startPct = ((tab.rangeStart - min) / (max - min)) * 100;
+      const endPct = (((tab.rangeEnd - 86399) - min) / (max - min)) * 100;
+      rangeBar.style.left = `${startPct}%`;
+      rangeBar.style.width = `${Math.max(0, endPct - startPct)}%`;
+    };
+
+    const onMove = (ev) => {
+      const rect = slider.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+      const dayUnix = Math.round((min + pct * (max - min)) / 86400) * 86400;
+      if (which === "start") {
+        tab.rangeStart = Math.min(dayUnix, tab.rangeEnd);
+        handle.style.left = `${((tab.rangeStart - min) / (max - min)) * 100}%`;
+        if (startInput) startInput.value = unixToDateStr(tab.rangeStart);
+      } else {
+        tab.rangeEnd = Math.max(dayUnix + 86399, tab.rangeStart);
+        handle.style.left = `${(((tab.rangeEnd - 86399) - min) / (max - min)) * 100}%`;
+        if (endInput) endInput.value = unixToDateStr(tab.rangeEnd);
+      }
+      redrawBar();
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      renderAll();
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return;
+  }
+
+  const resizer = e.target.closest(".chart-resize-handle");
+  if (resizer) {
+    e.preventDefault();
+    const tab = getTab(resizer.dataset.resizeTab);
+    if (!tab) return;
+    const wrap = document.getElementById("chart-wrap");
+    const startY = e.clientY;
+    const startHeight = tab.chartHeight ?? 320;
+    const onMove = (ev) => {
+      const newHeight = Math.max(160, Math.min(640, startHeight + (ev.clientY - startY)));
+      tab.chartHeight = newHeight;
+      if (wrap) wrap.style.height = `${newHeight}px`;
+      if (mainChart) mainChart.resize();
+    };
+    const onUp = () => {
+      localStorage.setItem("tabs", JSON.stringify(state.tabs));
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+});
+
+
+/* ==========================================================================
+   Init
+   ========================================================================== */
+
+document.getElementById("app").innerHTML = `
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main-area">
+    <div class="tab-bar" id="tab-bar"></div>
+    <div id="main-panel" style="flex:1; display:flex; flex-direction:column; min-height:0;"></div>
+  </div>
+`;
+await renderAll();
+</script>
+</body>
+</html>
