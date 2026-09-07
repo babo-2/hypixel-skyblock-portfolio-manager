@@ -9,10 +9,6 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-if False:#only once
-    with app.app_context():
-        db.create_all()
-
 class Portfolio(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -34,6 +30,11 @@ class Holding(db.Model):
     date = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Integer, nullable=False)
     price_per_unit = db.Column(db.Float, nullable=False)
+
+if False:#only once
+    with app.app_context():
+        db.create_all()
+
 
 with open("data/other/items.json", "r") as f:
     ITEMS = json.load(f)

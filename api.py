@@ -346,7 +346,7 @@ def index_item_info():
             continue
         info[item["id"]]={k: v for k, v in item.items() if (k not in ignored)}
         if "skin" in item:
-            info[item["id"]]["skin"]=item["skin"]["value"]
+            info[item["id"]]["skin"]=item["skin"]["value"]#Todo: base64decode andextract url
         elif "item_specific" in item and "skin" in item["item_specific"]:
             info[item["id"]]["skin"]=item["item_specific"]["skin"]
         #result[item["id"]]=len(str(info[item["id"]]))
@@ -447,6 +447,8 @@ def save_info():
         with open("data/other/bz.json", "w") as f:
             json.dump(bz_data, f)
     bz_items = bz_data["products"]
+    with open("data/other/items.json", "r") as f:
+        all_items=json.load(F)
     items={os.path.splitext(item)[0]: "data/bzItems/"+item for item in os.listdir("data/bzItems/")}
     items.update({os.path.splitext(item)[0]: "data/ahItems/"+item for item in os.listdir("data/ahItems/")})
     info={}
@@ -459,6 +461,8 @@ def save_info():
         info[itemId]["buyMovingWeek"]=bz_items[itemId]["quick_status"]["buyMovingWeek"]
         info[itemId]["sellOrders"]=bz_items[itemId]["quick_status"]["sellOrders"]
         info[itemId]["buyOrders"]=bz_items[itemId]["quick_status"]["buyOrders"]
+        info[itemId]["npcSellPrice"]=all_items[itemId].get("npc_sell_price", 0)
+        #info[itemId]["skin"]=all_items[itemId].get("kin", "")
         with open(items[itemId], "rb") as f:
             f.seek(0, 2)
             num_entries=f.tell()//ENTRY_SIZE

@@ -1,4 +1,5 @@
 data/
 instance/
+__pycache__/
 
 test.py

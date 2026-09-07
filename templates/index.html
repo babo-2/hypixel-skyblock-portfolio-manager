@@ -6,7 +6,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-
+  
   :root {
     --bg: #12151A; --surface: #1A1E25; --surface-alt: #212732;
     --border: #2B313C; --text: #E7E9EC; --text-dim: #8B93A2;
@@ -111,6 +111,12 @@
     padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; }
   .interval-btn.active { color: var(--amber); border-color: var(--amber); }
 
+  .item-range-row { display: flex; gap: 6px;}
+  .item-range-btn { width: 16vw; background: var(--surface-alt); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; }
+  .item-range-btn.active { color: var(--amber); border-color: var(--amber); }
+
+
   .chart-wrap { flex-shrink: 0; position: relative; }
   .chart-resize-handle { height: 10px; margin: 2px 0 0; border-radius: 3px; cursor: row-resize; position: relative; flex-shrink: 0; }
   .chart-resize-handle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 34px; height: 3px;
@@ -198,9 +204,7 @@ const dateStrToUnix = (s) => Math.floor(new Date(`${s}T00:00:00Z`).getTime() / 1
 const unixToDateStr = (u) => new Date(u * 1000).toISOString().slice(0, 10);
 const fmtMoney = (n) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtCompactMoney = (n) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-}[c]));
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",}[c]));
 
 /* ==========================================================================
    Market data service — requests GET /api/get_range/<item> + maybe caching?
@@ -322,6 +326,7 @@ class ReturnMath {
 /* ==========================================================================
    Portfolio domain service — all mutations return new immutable copies
    ========================================================================== */
+
 //TODO - use this to render client side without having to reload
 class PortfolioService {
   static create(name, description) {
@@ -672,14 +677,13 @@ function tickFormatter(t, interval) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function mountLineChart(canvasId, points, interval, lineColor, valueFormatter) {
+function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, startDate, endDate) {
   const fmt = valueFormatter ?? fmtMoney;
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   if (mainChart) { mainChart.destroy(); mainChart = null; }
   if (points.length === 1) {
     const step = PriceService.INTERVAL_SECONDS[interval] ?? 86400;
-
     points = [
       {
         t: points[0].t - step,
@@ -690,13 +694,35 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter) {
         y: points[0].y,
       },
     ];
+  }else if (points.length === 0){
+    document.getElementById("noDataDiv").style.display="flex";
+    document.getElementById("chart-wrap").style.display="none"
+    return;
   }
+  document.getElementById("chart-wrap").style.display="flex"
+  document.getElementById("noDataDiv").style.display="none";
   const labels = points.map((p) => tickFormatter(p.t, interval));
+  //const raw = points.map((p) => p.t);
+  //const values = points.map((p) => p.y);
+
   const raw = points.map((p) => p.t);
-  const values = points.map((p) => p.y);
+  const chartData = points.map((p) => ({
+    x: p.t,
+    y: p.y
+  }));
+
   mainChart = new Chart(canvas.getContext("2d"), {
     type: "line",
-    data: { labels, datasets: [{ data: values, borderColor: lineColor, backgroundColor: "transparent", borderWidth: 1.75, pointRadius: 0, tension: 0.2 }] },
+    data: {
+      datasets: [{
+        data: chartData,
+        borderColor: lineColor,
+        backgroundColor: "transparent",
+        borderWidth: 1.75,
+        pointRadius: 0,
+        tension: 0.2
+      }]
+    },
     options: {
       responsive: true, maintainAspectRatio: false,
       animation: false,
@@ -706,22 +732,32 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter) {
         tooltip: {
           backgroundColor: "#1A1E25", borderColor: "#2B313C", borderWidth: 1, titleColor: "#8B93A2", bodyColor: "#E7E9EC",
           callbacks: {
-            title: (items) => new Date(raw[items[0].dataIndex] * 1000).toLocaleString(),
+            title: (items) => new Date(items[0].parsed.x * 1000).toLocaleString(),
             label: (item) => fmt(item.parsed.y),
           },
         },
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: "#5A6270", font: { size: 11 }, maxTicksLimit: 8 } },
+        x: {
+          type: "linear",
+          min: startDate,
+          max: endDate,
+          grid: { display: false },
+          ticks: {
+            color: "#5A6270",
+            font: { size: 11 },
+            maxTicksLimit: 8,
+            callback: (value) => tickFormatter(value, interval)
+          }
+        },
         y: { grid: { color: "#232935" }, ticks: { color: "#5A6270", font: { size: 11 }, callback: (v) => fmt(v) } },
       },
     },
   });
 }
 
-function rangeControlsHtml(tab, minUnix) {
+function rangeControlsHtml(tab, minUnix, maxUnix) {
   const today = todayStr();
-  const maxUnix = Math.floor(Date.now() / 1000);
   const startPct = ((tab.rangeStart - minUnix) / (maxUnix - minUnix)) * 100;
   const endPct = (((tab.rangeEnd - 86399) - minUnix) / (maxUnix - minUnix)) * 100;
   return `
@@ -832,6 +868,20 @@ async function renderPortfolioPanel(tab) {
   const gainPct = cost ? ((value - cost) / cost) * 100 : 0;
   const hasHoldings = portfolio.holdings.length > 0;
   const mwrInception = hasHoldings ? PortfolioService.mwrSinceInception(portfolio, ItemInfoService.INFO) : null;
+  
+  const rangeMode = tab.rangeMode ?? "Today";
+  const rangeDiff=(RANGE_MODES[rangeMode] ?? 0);
+  let itemStartDate;
+  let startDate = Math.min(...portfolio.holdings.map((h) => h.date));
+  let currentDate = Math.max(...portfolio.holdings.map((h) => ItemInfoService.INFO[h.itemId].currentDate));
+  
+  if (rangeDiff === -1){
+    itemStartDate=startDate;
+  }else{
+    itemStartDate=Math.max(startDate, currentDate-rangeDiff);
+  }
+  tab.rangeStart=itemStartDate
+  localStorage.setItem("tabs", JSON.stringify(state.tabs));
 
   let series = [];
   let valueFormatter = fmtMoney;
@@ -881,7 +931,8 @@ async function renderPortfolioPanel(tab) {
       <div class="stat-box"><div class="stat-label">MWR (IRR) since inception</div><div class="stat-value">${mwrInception === null ? "—" : `${mwrInception >= 0 ? "+" : ""}${mwrInception.toFixed(1)}%`}</div></div>
     </div>
     ${graphModeControlsHtml(tab)}
-    ${rangeControlsHtml(tab, Math.min(...portfolio.holdings.map((h) => h.date)))}
+    ${itemRangeMode(tab)}
+    ${rangeControlsHtml(tab, itemStartDate, currentDate)}
     <div class="chart-wrap" id="chart-wrap" style="height:${tab.chartHeight ?? 320}px"><canvas id="main-chart"></canvas></div>
     <div class="chart-resize-handle" data-resize-tab="${tab.id}" title="Drag to resize"></div>
   ` : "";
@@ -923,6 +974,15 @@ function itemGraphModeControlsHtml(tab) {
   ).join("")}</div>`;
 }
 
+const RANGE_MODES={"Today": 24*60*60, "Week": 7*24*60*60, "Month": 31*7*24*60*60, "All Time": -1}
+
+function itemRangeMode(tab) {
+  const mode = tab.rangeMode ?? "Today";
+  return `<div class="item-range-row">${Object.entries(RANGE_MODES).map(([label, time]) =>
+  `<button class="item-range-btn ${mode === label ? "active" : ""}" data-action="set-item-range-mode" data-tab-id="${tab.id}" data-mode="${label}">${label}</button>`
+  ).join("")}</div>`;
+}
+
 async function renderMainPanel() {
   const container = document.getElementById("main-panel");
   const tab = getActiveTab();
@@ -938,13 +998,23 @@ async function renderMainPanel() {
     if (mainChart) { mainChart.destroy(); mainChart = null; }
     return;
   }
-
   if (tab.type === "item") {
-    console.log("render Item Panel")
     const item = itemsById[tab.refId];
     const interval = tab.interval ?? "1d";
     const mode = tab.itemGraphMode ?? "total";
+    const rangeMode = tab.rangeMode ?? "Today";
     const info = ItemInfoService.INFO[item.id] ?? { currentPrice: 0, change: 0, startDate: 0 };
+
+    let itemStartDate;
+    let rangeDiff=(RANGE_MODES[rangeMode] ?? 0);
+    let endTime = Math.floor(Date.now() / 1000);
+    if (rangeDiff === -1){
+      itemStartDate=info.startDate;
+    }else{
+      itemStartDate=Math.max(info.startDate, endTime-rangeDiff);
+    }
+    localStorage.setItem("tabs", JSON.stringify(state.tabs));
+
     const raw = await PriceService.getRange(item.id, tab.rangeStart, tab.rangeEnd, interval);
     
     const rawPoints = Object.entries(raw).map(([t, price]) => ({ t: Number(t), y: price }));
@@ -960,7 +1030,6 @@ async function renderMainPanel() {
     }
     const last = points[points.length - 1]?.y ?? 0;
     lineColor = last >= (mode === "percentage" ? 0 : first) ? "#4FAE8C" : "#C9634B";
-
 
     container.innerHTML = `
       <div class="panel">
@@ -981,9 +1050,15 @@ async function renderMainPanel() {
         </div>
         <div class="panel-body">
           ${itemGraphModeControlsHtml(tab)}
-          ${rangeControlsHtml(tab, info.startDate)}
+          ${itemRangeMode(tab)}
+          
+          <div id="noDataDiv" style="display: flex;align-items: center;justify-content: center;width: 100%;
+          height: 100%;color: #8B93A2;font-size: 14px;font-weight: 500;">
+          <p style="padding: 20px;background: rgba(100, 100, 100, 0.06);border-radius: 10px;">No Data</p></div>
+
           <div class="chart-wrap" id="chart-wrap" style="height:${tab.chartHeight ?? 320}px"><canvas id="main-chart"></canvas></div>
           <div class="chart-resize-handle" data-resize-tab="${tab.id}" title="Drag to resize"></div>
+          ${rangeControlsHtml(tab, itemStartDate, endTime)}
           <div class="stat-row">
             <div class="stat-box"><div class="stat-label">Sell MA (7d)</div><div class="stat-value mono">${fmtMoney(info.sellMovingWeek)}</div></div>
             <div class="stat-box"><div class="stat-label">Buy MA (7d)</div><div class="stat-value mono">${fmtMoney(info.buyMovingWeek)}</div></div>
@@ -995,7 +1070,7 @@ async function renderMainPanel() {
           <div class="scroll-spacer"></div>
         </div>
       </div>`;
-    mountLineChart("main-chart", points, interval, lineColor, valueFormatter);
+    mountLineChart("main-chart", points, interval, lineColor, valueFormatter, tab.rangeStart, tab.rangeEnd);
     return;
   }
   if (tab.type === "portfolio") {
@@ -1317,6 +1392,24 @@ document.addEventListener("click", async (e) => {
     case "set-item-graph-mode": {
       const tab = getTab(el.dataset.tabId);
       if (tab) tab.itemGraphMode = el.dataset.mode;
+      renderAll();
+      break;
+    }
+    case "set-item-range-mode": {
+      const tab = getTab(el.dataset.tabId);
+      if (tab) {
+        tab.rangeMode = el.dataset.mode;
+        if (tab.type=="item"){
+          const info = ItemInfoService.INFO[tab.refId]
+          let rangeDiff = RANGE_MODES[tab.rangeMode] ?? 0;
+          if (rangeDiff==-1){
+            tab.rangeStart = info.startDate
+          }else{
+            tab.rangeStart = Math.max(info.startDate, info.currentDate-rangeDiff)
+          }
+          tab.rangeEnd=info.currentDate;
+        }
+      }
       renderAll();
       break;
     }
