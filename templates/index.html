@@ -197,6 +197,7 @@
    ========================================================================== */
 
 let idSeq = 1000;
+
 const nextId = (prefix) => `${prefix}-${idSeq++}`;
 const round2 = (n) => Math.round(n * 100) / 100;
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -205,6 +206,11 @@ const unixToDateStr = (u) => new Date(u * 1000).toISOString().slice(0, 10);
 const fmtMoney = (n) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtCompactMoney = (n) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",}[c]));
+const dateStrToEndUnix = (s) => Math.floor(new Date(`${s}T23:59:59Z`).getTime() / 1000);
+const endOfDayUnix = (u) => {
+  const d = new Date(u * 1000);
+  d.setUTCHours(23, 59, 59, 999);
+  return Math.floor(d.getTime() / 1000);};
 
 /* ==========================================================================
    Market data service — requests GET /api/get_range/<item> + maybe caching?
@@ -237,15 +243,36 @@ class PriceService {
     return 15 + (PriceService.hashString(itemId) % 4850) / 10;
   }
 
-  static defaultWindow(interval) {
-    const end = Math.floor(Date.now() / 1000);
-    const span = PriceService.WINDOW_SECONDS[interval] ?? PriceService.WINDOW_SECONDS["1d"];
-    return { start: end - span, end };
+  static getPortfolioStartEndDate(portfolioId, rangeMode=null) {
+    const rangeDiff=(RANGE_MODES[rangeMode ?? DEFAULT_RANGE] ?? 0);
+    const portfolio = portfolioById(portfolioId);
+    const startDate = Math.min(...portfolio.holdings.map((h) => h.date));
+    const currentDate =  Math.floor(Date.now() / 1000);
+    let portfolioStartDate;
+    if (rangeDiff === -1){
+      portfolioStartDate=startDate;
+    }else{
+      portfolioStartDate=Math.max(startDate, currentDate-rangeDiff);
+    }
+    return { portfolioStartDate: portfolioStartDate, portfolioEndDate: endOfDayUnix(currentDate) };
+  }
+
+  static getItemStartEndDate(itemId, rangeMode=null) {
+    const rangeDiff=(RANGE_MODES[rangeMode ?? DEFAULT_RANGE] ?? 0);
+    const startDate = ItemInfoService.INFO[itemId].startDate;
+    const currentDate =  Math.floor(Date.now() / 1000);
+    let itemStartDate;
+    if (rangeDiff === -1){
+      itemStartDate=startDate;
+    }else{
+      itemStartDate=Math.max(startDate, currentDate-rangeDiff);
+    }
+    return { itemStartDate: itemStartDate, itemEndDate: endOfDayUnix(currentDate) };
   }
 
   // GET /api/get_range/<item>?start_range=unix&end_range=unix&interval=20s
   static async getRange(itemId, startUnix, endUnix, interval) {
-    const step = PriceService.INTERVAL_SECONDS[interval] ?? PriceService.INTERVAL_SECONDS["1d"];
+    const step = PriceService.INTERVAL_SECONDS[interval] ?? PriceService.INTERVAL_SECONDS[DEFAULT_INTERVAL];
     const params = new URLSearchParams({
       start_date: startUnix,
       end_date: endUnix,
@@ -327,7 +354,6 @@ class ReturnMath {
    Portfolio domain service — all mutations return new immutable copies
    ========================================================================== */
 
-//TODO - use this to render client side without having to reload
 class PortfolioService {
   static create(name, description) {
     return { id: nextId("pf"), name, description, holdings: [] };
@@ -345,13 +371,13 @@ class PortfolioService {
     return {
       ...portfolio,
       holdings: portfolio.holdings.map((h) =>
-        h.id === holdingId ? { ...h, date, amount, pricePerUnit, totalPrice: round2(amount * pricePerUnit) } : h
+        h.id == holdingId ? { ...h, date, amount, pricePerUnit, totalPrice: round2(amount * pricePerUnit) } : h
       ),
     };
   }
 
   static removeHolding(portfolio, holdingId) {
-    return { ...portfolio, holdings: portfolio.holdings.filter((h) => h.id !== holdingId) };
+    return { ...portfolio, holdings: portfolio.holdings.filter((h) => h.id != holdingId) };
   }
 
   static uniqueItemIds(portfolio) {
@@ -378,7 +404,13 @@ class PortfolioService {
       })
     );
     const priceMaps = Object.fromEntries(results);
-    const timestamps = Object.keys(priceMaps[uniqueItemIds[0]]).map(Number).sort((a, b) => a - b);
+    //const timestamps = Object.keys(priceMaps[uniqueItemIds[0]]).map(Number).sort((a, b) => a - b);
+
+    const timestampSet = new Set();
+    Object.values(priceMaps).forEach(map => {if (!map) return;
+      Object.keys(map).forEach(t => timestampSet.add(Number(t)));
+    });
+    const timestamps =[...timestampSet].sort((a,b)=>a-b);
     return { priceMaps, timestamps };
   }
 
@@ -461,6 +493,161 @@ class PortfolioService {
   }
 }
 
+/* ==========================================================================
+   Local Database
+   ========================================================================== */
+
+class Database {
+    static DB_NAME = "portfolioDB";
+    static DB_VERSION = 1;
+
+    static STORES = {
+        tabs: "tabs"
+    };
+
+    static db = null;
+
+    static async init() {
+        if (Database.db) return Database.db;
+
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(
+                Database.DB_NAME,
+                Database.DB_VERSION
+            );
+
+            request.onerror = () => reject(request.error);
+
+            request.onsuccess = () => {
+                Database.db = request.result;
+                resolve(Database.db);
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+
+                if (!db.objectStoreNames.contains("tabs")) {
+                    db.createObjectStore("tabs", {
+                        keyPath: "id"
+                    });
+                }
+
+                if (!db.objectStoreNames.contains("itemInfo")) {
+                    db.createObjectStore("itemInfo", {
+                        keyPath: "itemId"
+                    });
+                }
+
+                if (!db.objectStoreNames.contains("rangeCache")) {
+                    db.createObjectStore("rangeCache", {
+                        keyPath: "key"
+                    });
+                }
+
+                if (!db.objectStoreNames.contains("portfolioCache")) {
+                    db.createObjectStore("portfolioCache", {
+                        keyPath: "key"
+                    });
+                }
+            };
+        });
+    }
+
+    static async transaction(storeName, mode = "readonly") {
+        const db = await Database.init();
+        return db.transaction(storeName, mode).objectStore(storeName);
+    }
+
+    static async get(storeName, key) {
+        const store = await Database.transaction(storeName);
+
+        return new Promise((resolve, reject) => {
+            const req = store.get(key);
+
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async put(storeName, value) {
+        const store = await Database.transaction(
+            storeName,
+            "readwrite"
+        );
+
+        return new Promise((resolve, reject) => {
+            const req = store.put(value);
+
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async delete(storeName, key) {
+        const store = await Database.transaction(
+            storeName,
+            "readwrite"
+        );
+
+        return new Promise((resolve, reject) => {
+            const req = store.delete(key);
+
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async hasKey(storeName, key) {
+        const store = await Database.transaction(storeName);
+
+        return new Promise((resolve, reject) => {
+            const req = store.getKey(key);
+            req.onsuccess = () => resolve(req.result !== undefined);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async clear(storeName) {
+        const store = await Database.transaction(
+            storeName,
+            "readwrite"
+        );
+
+        return new Promise((resolve, reject) => {
+            const req = store.clear();
+
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async getAll(storeName) {
+        const store = await Database.transaction(storeName);
+
+        return new Promise((resolve, reject) => {
+            const req = store.getAll();
+
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async keys(storeName) {
+        const store = await Database.transaction(storeName);
+
+        return new Promise((resolve, reject) => {
+            const req = store.getAllKeys();
+
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    static async values(storeName) {
+        return await Database.getAll(storeName);
+    }
+}
+
 
 /* ==========================================================================
    Global state
@@ -483,12 +670,28 @@ if (localStorage.getItem("ui")==null){
 }else{
   ui = JSON.parse(localStorage.getItem("ui"))
 }
+//get highest id from tabs to avoid collissions
+let highestSeq = {};
+for (let tab of state.tabs){
+  let nom = tab.id.split("-")[0];
+  let Tabid = parseInt(tab.id.split("-")[1], "10");
+  if (Tabid > (highestSeq[nom] ?? 0)){
+     highestSeq[nom]=Tabid;
+  }
+}
+idSeq = (highestSeq["tab"] ?? 999) + 1
 await ItemInfoService.updateInfos(ITEMIDs);
 
 const itemsById = Object.fromEntries(state.items.map((i) => [i.id, i]));
 function portfoliosById() { return Object.fromEntries(state.portfolios.map((p) => [p.id, p])); }
-function getActiveTab() { return state.tabs.find((t) => t.id === state.activeTabId) || null; }
-function getTab(tabId) { return state.tabs.find((t) => t.id === tabId) || null; }
+function portfolioById(portfolioId) { 
+  for (const portfolio of state.portfolios){
+    if (portfolio.id == portfolioId){
+      return portfolio;
+    }
+  }return null;}
+function getActiveTab() { return state.tabs.find((t) => t.id == state.activeTabId) || null; }
+function getTab(tabId) { return state.tabs.find((t) => t.id == tabId) || null; }
 
 let mainChart = null;
 const INTERVALS = ["20s", "5min", "2h", "1d"];
@@ -639,7 +842,7 @@ function renderSidebar() {
 function tabLabel(tab) {
   if (tab.type === "default") return "Overview";
   if (tab.type === "item") return itemsById[tab.refId]?.symbol ?? "Unknown";
-  return portfoliosById()[tab.refId]?.name ?? "Unknown";
+  return portfolioById(tab.refId)?.name ?? "Unknown";
 }
 
 function tabIconHtml(tab) {
@@ -656,7 +859,7 @@ function renderTabBar() {
   bar.innerHTML = `
     <div class="tab-scroll">
       ${state.tabs.map((tab) => `
-        <div class="tab-pill ${tab.id === state.activeTabId ? "active" : ""}" data-action="select-tab" data-id="${tab.id}">
+        <div class="tab-pill ${tab.id == state.activeTabId ? "active" : ""}" data-action="select-tab" data-id="${tab.id}">
           ${tabIconHtml(tab)}
           <span class="tab-label">${escapeHtml(tabLabel(tab))}</span>
           <button class="tab-close" data-action="close-tab" data-id="${tab.id}">${iconSvg("x")}</button>
@@ -758,8 +961,10 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, s
 
 function rangeControlsHtml(tab, minUnix, maxUnix) {
   const today = todayStr();
-  const startPct = ((tab.rangeStart - minUnix) / (maxUnix - minUnix)) * 100;
-  const endPct = (((tab.rangeEnd - 86399) - minUnix) / (maxUnix - minUnix)) * 100;
+
+  const span = Math.max(1, maxUnix - minUnix);
+  const startPct =((tab.rangeStart - minUnix) / span) * 100;
+  const endPct =((tab.rangeEnd - minUnix) / span) * 100;
   return `
     <div class="range-row">
       <div class="interval-row">
@@ -781,7 +986,7 @@ function rangeControlsHtml(tab, minUnix, maxUnix) {
 }
 
 /* ==========================================================================
-   Panels - renderers
+   controls - renderers
    ========================================================================== */
 
 const GRAPH_MODES = [
@@ -796,7 +1001,6 @@ function graphModeControlsHtml(tab) {
   ).join("")}</div>`;
 }
 
-/* added, before renderDefaultPanel */
 const OVERVIEW_SORT_FIELDS = [
   ["price", "Price"], ["change", "Change %"],
   ["sellMovingWeek", "Sell MA (7d)"], ["buyMovingWeek", "Buy MA (7d)"],
@@ -813,6 +1017,30 @@ function sortedItemsForOverview() {
     return vb - va; // descending
   });
 }
+
+const ITEM_GRAPH_MODES = [["total", "Total"], ["percentage", "Percentage"]];
+
+function itemGraphModeControlsHtml(tab) {
+  const mode = tab.itemGraphMode ?? "total";
+  return `<div class="interval-row">${ITEM_GRAPH_MODES.map(([m, label]) =>
+    `<button class="interval-btn ${mode === m ? "active" : ""}" data-action="set-item-graph-mode" data-tab-id="${tab.id}" data-mode="${m}">${label}</button>`
+  ).join("")}</div>`;
+}
+
+const RANGE_MODES={"Today": 24*60*60, "Week": 7*24*60*60, "Month": 31*24*60*60, "All Time": -1}
+const DEFAULT_RANGE = "Today";
+const DEFAULT_INTERVAL = "1d";
+
+function itemRangeMode(tab) {
+  const mode = tab.rangeMode ?? DEFAULT_RANGE;
+  return `<div class="item-range-row">${Object.entries(RANGE_MODES).map(([label, time]) =>
+  `<button class="item-range-btn ${mode === label ? "active" : ""}" data-action="set-item-range-mode" data-tab-id="${tab.id}" data-mode="${label}">${label}</button>`
+  ).join("")}</div>`;
+}
+
+/* ==========================================================================
+   Panels - renderers
+   ========================================================================== */
 
 function renderDefaultPanel() {
   return `
@@ -859,9 +1087,9 @@ function renderDefaultPanel() {
     </div>`;
 }
 
-async function renderPortfolioPanel(tab) {
-  const portfolio = portfoliosById()[tab.refId];
-  const interval = tab.interval ?? "1d";
+async function renderPortfolioPanel(tab, request=true) {
+  const portfolio = portfolioById(tab.refId);
+  const interval = tab.interval ?? DEFAULT_INTERVAL;
   const mode = tab.graphMode ?? "value";
   const cost = PortfolioService.totalCost(portfolio);
   const value = PortfolioService.totalValue(portfolio, ItemInfoService.INFO);
@@ -869,20 +1097,8 @@ async function renderPortfolioPanel(tab) {
   const hasHoldings = portfolio.holdings.length > 0;
   const mwrInception = hasHoldings ? PortfolioService.mwrSinceInception(portfolio, ItemInfoService.INFO) : null;
   
-  const rangeMode = tab.rangeMode ?? "Today";
-  const rangeDiff=(RANGE_MODES[rangeMode] ?? 0);
-  let itemStartDate;
-  let startDate = Math.min(...portfolio.holdings.map((h) => h.date));
-  let currentDate = Math.max(...portfolio.holdings.map((h) => ItemInfoService.INFO[h.itemId].currentDate));
-  
-  if (rangeDiff === -1){
-    itemStartDate=startDate;
-  }else{
-    itemStartDate=Math.max(startDate, currentDate-rangeDiff);
-  }
-  tab.rangeStart=itemStartDate
-  localStorage.setItem("tabs", JSON.stringify(state.tabs));
-
+  const rangeMode = tab.rangeMode ?? DEFAULT_RANGE;
+  const { portfolioStartDate, portfolioEndDate } = PriceService.getPortfolioStartEndDate(tab.refId, rangeMode);
   let series = [];
   let valueFormatter = fmtMoney;
   let lineColor = gainPct >= 0 ? "#4FAE8C" : "#C9634B";
@@ -932,13 +1148,15 @@ async function renderPortfolioPanel(tab) {
     </div>
     ${graphModeControlsHtml(tab)}
     ${itemRangeMode(tab)}
-    ${rangeControlsHtml(tab, itemStartDate, currentDate)}
+    <div id="noDataDiv" style="display: flex;align-items: center;justify-content: center;width: 100%;
+    height: 100%;color: #8B93A2;font-size: 14px;font-weight: 500;">
+    <p style="padding: 20px;background: rgba(100, 100, 100, 0.06);border-radius: 10px;">No Data</p></div>
     <div class="chart-wrap" id="chart-wrap" style="height:${tab.chartHeight ?? 320}px"><canvas id="main-chart"></canvas></div>
     <div class="chart-resize-handle" data-resize-tab="${tab.id}" title="Drag to resize"></div>
+    ${rangeControlsHtml(tab, portfolioStartDate, portfolioEndDate)}
   ` : "";
 
-  return {
-    html: `
+  const html = `
       <div class="panel">
         <div class="panel-header">
           <div>
@@ -960,63 +1178,37 @@ async function renderPortfolioPanel(tab) {
               </table>`}
             <div class="scroll-spacer"></div>
         </div>
-      </div>`,
-    points, interval, valueFormatter, lineColor, hasHoldings,
-  };
+      </div>`
+  return {html, points, interval, valueFormatter, lineColor, hasHoldings};
 }
 
-const ITEM_GRAPH_MODES = [["total", "Total"], ["percentage", "Percentage"]];
-
-function itemGraphModeControlsHtml(tab) {
-  const mode = tab.itemGraphMode ?? "total";
-  return `<div class="interval-row">${ITEM_GRAPH_MODES.map(([m, label]) =>
-    `<button class="interval-btn ${mode === m ? "active" : ""}" data-action="set-item-graph-mode" data-tab-id="${tab.id}" data-mode="${m}">${label}</button>`
-  ).join("")}</div>`;
-}
-
-const RANGE_MODES={"Today": 24*60*60, "Week": 7*24*60*60, "Month": 31*7*24*60*60, "All Time": -1}
-
-function itemRangeMode(tab) {
-  const mode = tab.rangeMode ?? "Today";
-  return `<div class="item-range-row">${Object.entries(RANGE_MODES).map(([label, time]) =>
-  `<button class="item-range-btn ${mode === label ? "active" : ""}" data-action="set-item-range-mode" data-tab-id="${tab.id}" data-mode="${label}">${label}</button>`
-  ).join("")}</div>`;
-}
-
-async function renderMainPanel() {
-  const container = document.getElementById("main-panel");
-  const tab = getActiveTab();
-
-  if (!tab) {
-    container.innerHTML = `<div class="empty-state">Open an item or a portfolio to get started.</div>`;
-    if (mainChart) { mainChart.destroy(); mainChart = null; }
-    return;
-  }
-
-  if (tab.type === "default") {
-    container.innerHTML = renderDefaultPanel();
-    if (mainChart) { mainChart.destroy(); mainChart = null; }
-    return;
-  }
-  if (tab.type === "item") {
+async function renderItemPanel(tab, request=true){
     const item = itemsById[tab.refId];
-    const interval = tab.interval ?? "1d";
+    const interval = tab.interval ?? DEFAULT_INTERVAL;
     const mode = tab.itemGraphMode ?? "total";
-    const rangeMode = tab.rangeMode ?? "Today";
+    const rangeMode = tab.rangeMode ?? DEFAULT_RANGE;
     const info = ItemInfoService.INFO[item.id] ?? { currentPrice: 0, change: 0, startDate: 0 };
 
-    let itemStartDate;
-    let rangeDiff=(RANGE_MODES[rangeMode] ?? 0);
-    let endTime = Math.floor(Date.now() / 1000);
-    if (rangeDiff === -1){
-      itemStartDate=info.startDate;
-    }else{
-      itemStartDate=Math.max(info.startDate, endTime-rangeDiff);
-    }
-    localStorage.setItem("tabs", JSON.stringify(state.tabs));
+    const { itemStartDate, itemEndDate } = PriceService.getItemStartEndDate(tab.refId, rangeMode)
 
-    const raw = await PriceService.getRange(item.id, tab.rangeStart, tab.rangeEnd, interval);
-    
+    //test in range first?
+    let raw;
+    if (!request){
+      if (Database.hasKey("tabs", "tab-"+tab.id)){
+        raw = Database.get("tabs", "tab-"+tab.id);
+      }else{
+        request=true;
+      }
+    }
+    if (request){
+      raw = await PriceService.getRange(item.id, tab.rangeStart, tab.rangeEnd, interval);
+      Database.put("tabs", {
+          "id": "tab-"+tab.id,
+          points: raw
+        }
+      );
+    }
+
     const rawPoints = Object.entries(raw).map(([t, price]) => ({ t: Number(t), y: price }));
     const first = rawPoints[0]?.y ?? 0;
 
@@ -1031,7 +1223,7 @@ async function renderMainPanel() {
     const last = points[points.length - 1]?.y ?? 0;
     lineColor = last >= (mode === "percentage" ? 0 : first) ? "#4FAE8C" : "#C9634B";
 
-    container.innerHTML = `
+    const html = `
       <div class="panel">
         <div class="panel-header item-header">
           <div class="item-header-left">
@@ -1051,14 +1243,13 @@ async function renderMainPanel() {
         <div class="panel-body">
           ${itemGraphModeControlsHtml(tab)}
           ${itemRangeMode(tab)}
-          
           <div id="noDataDiv" style="display: flex;align-items: center;justify-content: center;width: 100%;
           height: 100%;color: #8B93A2;font-size: 14px;font-weight: 500;">
           <p style="padding: 20px;background: rgba(100, 100, 100, 0.06);border-radius: 10px;">No Data</p></div>
 
           <div class="chart-wrap" id="chart-wrap" style="height:${tab.chartHeight ?? 320}px"><canvas id="main-chart"></canvas></div>
           <div class="chart-resize-handle" data-resize-tab="${tab.id}" title="Drag to resize"></div>
-          ${rangeControlsHtml(tab, itemStartDate, endTime)}
+          ${rangeControlsHtml(tab, itemStartDate, itemEndDate)}
           <div class="stat-row">
             <div class="stat-box"><div class="stat-label">Sell MA (7d)</div><div class="stat-value mono">${fmtMoney(info.sellMovingWeek)}</div></div>
             <div class="stat-box"><div class="stat-label">Buy MA (7d)</div><div class="stat-value mono">${fmtMoney(info.buyMovingWeek)}</div></div>
@@ -1070,14 +1261,35 @@ async function renderMainPanel() {
           <div class="scroll-spacer"></div>
         </div>
       </div>`;
-    mountLineChart("main-chart", points, interval, lineColor, valueFormatter, tab.rangeStart, tab.rangeEnd);
+    return {html, points, interval, valueFormatter, lineColor}
+}
+
+async function renderMainPanel(request=true) {
+  const container = document.getElementById("main-panel");
+  const tab = getActiveTab();
+
+  if (!tab) {
+    container.innerHTML = `<div class="empty-state">Open an item or a portfolio to get started.</div>`;
+    if (mainChart) { mainChart.destroy(); mainChart = null; }
+    return;
+  }
+
+  if (tab.type === "default") {
+    container.innerHTML = renderDefaultPanel();
+    if (mainChart) { mainChart.destroy(); mainChart = null; }
+    return;
+  }
+  if (tab.type === "item") {
+      const result = await renderItemPanel(tab, request);
+      container.innerHTML =result.html
+      mountLineChart("main-chart", result.points, result.interval, result.lineColor, result.valueFormatter, tab.rangeStart, tab.rangeEnd);
     return;
   }
   if (tab.type === "portfolio") {
-    const result = await renderPortfolioPanel(tab);
+    const result = await renderPortfolioPanel(tab, request);
     container.innerHTML = result.html;
     if (result.hasHoldings) {
-      mountLineChart("main-chart", result.points, result.interval, result.lineColor, result.valueFormatter);
+      mountLineChart("main-chart", result.points, result.interval, result.lineColor, result.valueFormatter, tab.rangeStart, tab.rangeEnd);
     } else if (mainChart) {
       mainChart.destroy(); mainChart = null;
     }
@@ -1085,10 +1297,11 @@ async function renderMainPanel() {
   }
 }
 
-async function renderAll() {
+async function renderAll(request=true) {
+  console.log("RENDER ALL:",request);
   renderSidebar();
   renderTabBar();
-  await renderMainPanel();
+  await renderMainPanel(request);
 }
 
 /* ==========================================================================
@@ -1099,29 +1312,28 @@ async function openItemTab(itemId) {
   const existing = state.tabs.find((t) => t.type === "item" && t.refId === itemId);
   if (existing) { state.activeTabId = existing.id;localStorage.setItem("activeTabId", existing.id); }
   else {
-    const { start, end } = PriceService.defaultWindow("1d");
-    const tab = { id: nextId("tab"), type: "item", refId: itemId, interval: "1d", rangeStart: start, rangeEnd: end, itemGraphMode: "total" };
+    const { itemStartDate, itemEndDate } = PriceService.getItemStartEndDate(itemId);
+    const tab = { id: nextId("tab"), type: "item", refId: itemId, interval: DEFAULT_INTERVAL, rangeStart: itemStartDate, rangeEnd: itemEndDate, rangeMode: DEFAULT_RANGE, itemGraphMode: "total" };
     state.tabs.push(tab);
     state.activeTabId = tab.id;
     localStorage.setItem("activeTabId", tab.id);
     localStorage.setItem("tabs", JSON.stringify(state.tabs));
   }
-  
-  await renderAll();
+  await renderAll(true);
 }
 
 async function openPortfolioTab(portfolioId) {
   const existing = state.tabs.find((t) => t.type === "portfolio" && t.refId === portfolioId);
   if (existing) { state.activeTabId = existing.id;localStorage.setItem("activeTabId", existing.id); }
   else {
-    const { start, end } = PriceService.defaultWindow("1d");
-    const tab = { id: nextId("tab"), type: "portfolio", refId: portfolioId, interval: "1d", rangeStart: start, rangeEnd: end, graphMode: "value" };
+    const { portfolioStartDate, portfolioEndDate } = PriceService.getPortfolioStartEndDate(portfolioId);
+    const tab = { id: nextId("tab"), type: "portfolio", refId: portfolioId, interval: DEFAULT_INTERVAL, rangeStart: portfolioStartDate, rangeEnd: portfolioEndDate, graphMode: "value" };
     state.tabs.push(tab);
     state.activeTabId = tab.id;
     localStorage.setItem("activeTabId", tab.id);
     localStorage.setItem("tabs", JSON.stringify(state.tabs));
   }
-  await renderAll();
+  await renderAll(true);
 }
 
 async function openNewDefaultTab() {
@@ -1130,11 +1342,11 @@ async function openNewDefaultTab() {
   state.activeTabId = tab.id;
   localStorage.setItem("activeTabId", tab.id);
   localStorage.setItem("tabs", JSON.stringify(state.tabs));
-  await renderAll();
+  await renderAll(false);
 }
 
 async function closeTab(tabId) {
-  const idx = state.tabs.findIndex((t) => t.id === tabId);
+  const idx = state.tabs.findIndex((t) => t.id == tabId);
   if (idx === -1) return;
   state.tabs.splice(idx, 1);
   if (tabId === state.activeTabId) {
@@ -1143,7 +1355,8 @@ async function closeTab(tabId) {
     localStorage.setItem("activeTabId", state.activeTabId);
   }
   localStorage.setItem("tabs", JSON.stringify(state.tabs));
-  await renderAll();
+  Database.delete("tabs", "tab-"+tabId);
+  await renderAll(false);
 }
 
 /* ==========================================================================
@@ -1165,7 +1378,7 @@ async function createPortfolio(name, description) {
   const portfolio = await response.json();
 
   state.portfolios.push(portfolio);
-  await renderAll();
+  await renderAll(true);
 }
 
 async function deletePortfolio(portfolioId) {
@@ -1173,18 +1386,25 @@ async function deletePortfolio(portfolioId) {
   state.portfolios = state.portfolios.filter((p) => p.id !== portfolioId);
   state.tabs = state.tabs.filter((t) => !(t.type === "portfolio" && t.refId === portfolioId));
   const tab = getActiveTab();
-  if (!tab) {state.activeTabId = state.tabs[0]?.id ?? null;localStorage.setItem(activeTabId);}
+  if (!tab) {state.activeTabId = state.tabs[0]?.id ?? null;localStorage.setItem("activeTabId", activeTabId);}
   localStorage.setItem("tabs", JSON.stringify(state.tabs));
-  await renderAll();
+  await renderAll(false);
 }
 
 async function removeHolding(portfolioId, holdingId) {
   await fetch(`/api/portfolios/${portfolioId}/holdings/${holdingId}`,{method: "DELETE",});
-  state.portfolios = state.portfolios.map((p) => (p.id === portfolioId ? PortfolioService.removeHolding(p, holdingId) : p));
-  await renderAll();
+  state.portfolios = state.portfolios.map((p) => (p.id == portfolioId ? PortfolioService.removeHolding(p, holdingId) : p));
+  await renderAll(false);
 }
 
-async function submitHolding(data) {
+async function submitHolding(data, edting=false) {
+  const old_holding={
+        itemId: data.itemId,
+        date: data.date,
+        amount: data.amount,
+        pricePerUnit: data.pricePerUnit,
+        ...(data.mode === "edit" && { holdingId: data.holdingId })
+  };
   const response = await fetch(
     `/api/portfolios/${data.portfolioId}/holdings` + (data.mode === "add" ? "":("/"+data.holdingId)),
     {
@@ -1192,30 +1412,29 @@ async function submitHolding(data) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        itemId: data.itemId,
-        date: data.date,
-        amount: data.amount,
-        pricePerUnit: data.pricePerUnit,
-        ...(data.mode === "edit" && { holdingId: data.holdingId })
-      }),
+      body: JSON.stringify(old_holding),
     }
   );
-
   const holding = await response.json();
-
   // Update local state with the backend result
   state.portfolios = state.portfolios.map((p) => {
-    if (p.id !== data.portfolioId) return p;
-
-    return {
-      ...p,
-      holdings: [...p.holdings, holding],
-    };
+    if (p.id != data.portfolioId) return p;
+    if (edting){
+      return {
+        ...p,
+        holdings: p.holdings.map(h => {
+          return h.id == old_holding.holdingId ? old_holding: h
+        })
+      };
+    }else{
+      return {
+        ...p,
+        holdings: [...p.holdings, holding]
+      };
+    }
   });
-
   closeModal();
-  await renderAll();
+  await renderAll(false);
 }
 
 /* ==========================================================================
@@ -1264,7 +1483,7 @@ function openHoldingModal({ mode, itemId, portfolioId, holding }) {
   const portfolioSelectHtml = mode === "add" ? `
     <label class="full-width"><span>Portfolio</span>
       <select id="buy-portfolio">
-        ${state.portfolios.map((p) => `<option value="${p.id}" ${p.id === portfolioId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+        ${state.portfolios.map((p) => `<option value="${p.id}" ${p.id == portfolioId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
       </select>
     </label>` : "";
 
@@ -1329,7 +1548,7 @@ function openHoldingModal({ mode, itemId, portfolioId, holding }) {
       mode, portfolioId: targetPortfolioId, itemId,
       holdingId: holding?.id, date: dateStrToUnix(dateInput.value),
       amount: parseFloat(amountInput.value), pricePerUnit: parseFloat(ppuInput.value),
-    });
+    }, !(mode==="add"));
   });
   document.getElementById("modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
 }
@@ -1358,7 +1577,7 @@ document.addEventListener("click", async (e) => {
   switch (action) {
     case "open-item": await openItemTab(id); break;
     case "open-portfolio": await openPortfolioTab(id); break;
-    case "select-tab": state.activeTabId = id;localStorage.setItem("activeTabId", state.activeTabId); await renderAll(); break;
+    case "select-tab": state.activeTabId = id;localStorage.setItem("activeTabId", state.activeTabId); await renderAll(false); break;
     case "close-tab": await closeTab(id); break;
     case "new-tab": await openNewDefaultTab(); break;
     case "toggle-portfolios": ui.portfoliosCollapsed = !ui.portfoliosCollapsed; renderSidebar();localStorage.setItem("ui", JSON.stringify(ui)); break;
@@ -1371,7 +1590,7 @@ document.addEventListener("click", async (e) => {
     case "edit-holding": {
       const pfId = el.dataset.portfolioId;
       const hId = el.dataset.holdingId;
-      const portf = portfoliosById()[pfId];
+      const portf = portfolioById(pfId);
       const holding = portf.holdings.find((h) => h.id == hId);
       openHoldingModal({ mode: "edit", itemId: holding.itemId, portfolioId: pfId, holding });
       break;
@@ -1380,19 +1599,19 @@ document.addEventListener("click", async (e) => {
     case "set-interval": {
       const tab = getTab(el.dataset.tabId);
       if (tab) tab.interval = el.dataset.interval;
-      await renderAll();
+      await renderAll(true);
       break;
     }
     case "set-graph-mode": {
       const tab = getTab(el.dataset.tabId);
       if (tab) tab.graphMode = el.dataset.mode;
-      renderAll();
+      renderAll(false);
       break;
     }
     case "set-item-graph-mode": {
       const tab = getTab(el.dataset.tabId);
       if (tab) tab.itemGraphMode = el.dataset.mode;
-      renderAll();
+      renderAll(false);
       break;
     }
     case "set-item-range-mode": {
@@ -1400,17 +1619,16 @@ document.addEventListener("click", async (e) => {
       if (tab) {
         tab.rangeMode = el.dataset.mode;
         if (tab.type=="item"){
-          const info = ItemInfoService.INFO[tab.refId]
-          let rangeDiff = RANGE_MODES[tab.rangeMode] ?? 0;
-          if (rangeDiff==-1){
-            tab.rangeStart = info.startDate
-          }else{
-            tab.rangeStart = Math.max(info.startDate, info.currentDate-rangeDiff)
-          }
-          tab.rangeEnd=info.currentDate;
+          const { itemStartDate, itemEndDate } = PriceService.getItemStartEndDate(tab.refId, tab.rangeMode);
+          tab.rangeStart = itemStartDate;
+          tab.rangeEnd = itemEndDate;
+        }else if (tab.type === "portfolio") {
+            const { portfolioStartDate, portfolioEndDate } = PriceService.getPortfolioStartEndDate(tab.refId, tab.rangeMode);
+            tab.rangeStart = portfolioStartDate;
+            tab.rangeEnd = portfolioEndDate;
         }
       }
-      renderAll();
+      renderAll(true);
       break;
     }
     case "close-modal": closeModal(); break;
@@ -1434,23 +1652,28 @@ document.addEventListener("mousedown", (e) => {
     const endInput = document.getElementById("range-end-input");
 
     const redrawBar = () => {
-      const startPct = ((tab.rangeStart - min) / (max - min)) * 100;
-      const endPct = (((tab.rangeEnd - 86399) - min) / (max - min)) * 100;
+      const span = Math.max(1, max - min);
+      const startPct =((tab.rangeStart - min) / span) * 100;
+      const endPct =((tab.rangeEnd - min) / span) * 100;
       rangeBar.style.left = `${startPct}%`;
       rangeBar.style.width = `${Math.max(0, endPct - startPct)}%`;
     };
-
     const onMove = (ev) => {
       const rect = slider.getBoundingClientRect();
       const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
       const dayUnix = Math.round((min + pct * (max - min)) / 86400) * 86400;
+
+      const span = Math.max(1, max - min);
+      const startPct =((tab.rangeStart - min) / span) * 100;
+      const endPct =((tab.rangeEnd - min) / span) * 100;
+
       if (which === "start") {
         tab.rangeStart = Math.min(dayUnix, tab.rangeEnd);
-        handle.style.left = `${((tab.rangeStart - min) / (max - min)) * 100}%`;
+        handle.style.left = `${startPct}%`;
         if (startInput) startInput.value = unixToDateStr(tab.rangeStart);
       } else {
         tab.rangeEnd = Math.max(dayUnix + 86399, tab.rangeStart);
-        handle.style.left = `${(((tab.rangeEnd - 86399) - min) / (max - min)) * 100}%`;
+        handle.style.left = `${endPct}%`;
         if (endInput) endInput.value = unixToDateStr(tab.rangeEnd);
       }
       redrawBar();
@@ -1458,7 +1681,7 @@ document.addEventListener("mousedown", (e) => {
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      renderAll();
+      renderAll(false);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -1501,7 +1724,7 @@ document.getElementById("app").innerHTML = `
     <div id="main-panel" style="flex:1; display:flex; flex-direction:column; min-height:0;"></div>
   </div>
 `;
-await renderAll();
+await renderAll(true);
 </script>
 </body>
 </html>
