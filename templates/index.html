@@ -248,6 +248,7 @@ class PriceService {
     const portfolio = portfolioById(portfolioId);
     const startDate = Math.min(...portfolio.holdings.map((h) => h.date));
     const currentDate =  Math.floor(Date.now() / 1000);
+
     let portfolioStartDate;
     if (rangeDiff === -1){
       portfolioStartDate=startDate;
@@ -258,7 +259,7 @@ class PriceService {
   }
 
   static getItemStartEndDate(itemId, rangeMode=null) {
-    const rangeDiff=(RANGE_MODES[rangeMode ?? DEFAULT_RANGE] ?? 0);
+    const rangeDiff=(RANGE_MODES[rangeMode ?? DEFAULT_RANGE] ?? 0)
     const startDate = ItemInfoService.INFO[itemId].startDate;
     const currentDate =  Math.floor(Date.now() / 1000);
     let itemStartDate;
@@ -416,8 +417,8 @@ class PortfolioService {
 
   // Total portfolio value over time: at each timestamp, sum amount * price
   // for every holding already bought by that point (unbought holdings contribute 0).
-  static async valueSeries(portfolio, start, end, interval) {
-    const ctx = await PortfolioService._buildContext(portfolio, start, end, interval);
+  static valueSeries(context, portfolio) {
+    const ctx = context;//await PortfolioService._buildContext(portfolio, start, end, interval);
     if (!ctx) return [];
     return ctx.timestamps.map((t) => {
       let value = 0;
@@ -431,8 +432,8 @@ class PortfolioService {
   // Time-Weighted Return (%): chain-links sub-period returns, excluding the
   // mark-to-market value of money added during each sub-period, so contribution
   // size/timing doesn't distort the measured performance of the holdings themselves.
-  static async twrSeries(portfolio, start, end, interval) {
-    const ctx = await PortfolioService._buildContext(portfolio, start, end, interval);
+  static twrSeries(context, portfolio) {
+    const ctx = context;//await PortfolioService._buildContext(portfolio, start, end, interval);
     if (!ctx) return [];
     const { priceMaps, timestamps } = ctx;
     const result = [];
@@ -464,8 +465,8 @@ class PortfolioService {
 
   // Money-Weighted Return / IRR to date (%): the annualized rate that makes the
   // NPV of all contributions plus the current mark-to-market value equal zero.
-  static async mwrSeries(portfolio, start, end, interval) {
-    const ctx = await PortfolioService._buildContext(portfolio, start, end, interval);
+  static mwrSeries(context, portfolio) {
+    const ctx = context;//await PortfolioService._buildContext(portfolio, start, end, interval);
     if (!ctx) return [];
     const { priceMaps, timestamps } = ctx;
     const sortedHoldings = [...portfolio.holdings].sort((a, b) => a.date - b.date);
@@ -656,6 +657,7 @@ class Database {
 const ITEMS = {{ items | tojson }};
 const ITEMIDs = ITEMS.map(obj => obj.id);
 const PORTFOLIOS = {{ portfolios | tojson }};
+const PORTFOLIOS_TO_UPDATE = new Set();
 
 const state = {
   items: ITEMS,
@@ -874,13 +876,33 @@ function renderTabBar() {
    Chart mounting (Chart.js)
    ========================================================================== */
 
+   //FIX THIS FUNCTION
+function tickFormatter2(t, interval) {
+  const d = new Date((t) * 1000);
+  if (interval === "5min") return d.toLocaleTimeString([], { timeZone: "UTC", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString([], { timeZone: "UTC", month: "short", day: "numeric" });
+}
+
 function tickFormatter(t, interval) {
   const d = new Date(t * 1000);
-  if (interval === "5min") return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+
+  if (interval === "5min") {
+    return d.toLocaleTimeString("en-GB", {
+      timeZone: "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return d.toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, startDate, endDate) {
+  console.log("END:",endDate)
   const fmt = valueFormatter ?? fmtMoney;
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -904,15 +926,16 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, s
   }
   document.getElementById("chart-wrap").style.display="flex"
   document.getElementById("noDataDiv").style.display="none";
-  const labels = points.map((p) => tickFormatter(p.t, interval));
+  //const labels = points.map((p) => tickFormatter(p.t, interval));
   //const raw = points.map((p) => p.t);
   //const values = points.map((p) => p.y);
 
-  const raw = points.map((p) => p.t);
+  //const raw = points.map((p) => p.t);
   const chartData = points.map((p) => ({
     x: p.t,
     y: p.y
   }));
+  console.log(chartData)
 
   mainChart = new Chart(canvas.getContext("2d"), {
     type: "line",
@@ -935,7 +958,13 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, s
         tooltip: {
           backgroundColor: "#1A1E25", borderColor: "#2B313C", borderWidth: 1, titleColor: "#8B93A2", bodyColor: "#E7E9EC",
           callbacks: {
-            title: (items) => new Date(items[0].parsed.x * 1000).toLocaleString(),
+            title: (items) => new Date(items[0].parsed.x * 1000).toLocaleString([], {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+}),
             label: (item) => fmt(item.parsed.y),
           },
         },
@@ -950,7 +979,7 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, s
             color: "#5A6270",
             font: { size: 11 },
             maxTicksLimit: 8,
-            callback: (value) => tickFormatter(value, interval)
+            callback: (value) => {console.log(value, tickFormatter(value, interval));return tickFormatter(value, interval);}
           }
         },
         y: { grid: { color: "#232935" }, ticks: { color: "#5A6270", font: { size: 11 }, callback: (v) => fmt(v) } },
@@ -1102,16 +1131,46 @@ async function renderPortfolioPanel(tab, request=true) {
   let series = [];
   let valueFormatter = fmtMoney;
   let lineColor = gainPct >= 0 ? "#4FAE8C" : "#C9634B";
+  let context;
+  let start_request_at = tab.rangeStart;
+  let end_request_at = tab.rangeEnd;
+  let portfolio_update = false;
+  if (PORTFOLIOS_TO_UPDATE.has(tab.refId)){
+    portfolio_update=true;
+    PORTFOLIOS_TO_UPDATE.delete(tab.refId);
+    start_request_at=portfolioStartDate;
+    end_request_at=portfolioEndDate;
+  }
+
+  if (!request && !portfolio_update){
+      context = await Database.get("tabs", "tab-"+tab.id);
+      if (context){
+        context=context["context"];
+      }else{
+        request=false;
+      }
+      console.log("GET");
+  }
+  if (request || portfolio_update){
+    console.log("UPDATE");
+    context = await PortfolioService._buildContext(portfolio, start_request_at, end_request_at, interval);
+    Database.put("tabs", {//don't need to await I think?
+        "id": "tab-"+tab.id,
+        context: context
+      }
+    );
+    
+  }
   if (hasHoldings) {
     if (mode === "value") {
-      series = await PortfolioService.valueSeries(portfolio, tab.rangeStart, tab.rangeEnd, interval);
+      series = PortfolioService.valueSeries(context, portfolio);
       valueFormatter = fmtMoney;
     } else if (mode === "twr") {
-      series = await PortfolioService.twrSeries(portfolio, tab.rangeStart, tab.rangeEnd, interval);
+      series = PortfolioService.twrSeries(context, portfolio);
       valueFormatter = (v) => `${v.toFixed(1)}%`;
       lineColor = (series[series.length - 1]?.value ?? 0) >= 0 ? "#4FAE8C" : "#C9634B";
     } else {
-      series = await PortfolioService.mwrSeries(portfolio, tab.rangeStart, tab.rangeEnd, interval);
+      series = PortfolioService.mwrSeries(context, portfolio);
       valueFormatter = (v) => `${v.toFixed(1)}%`;
       lineColor = (series[series.length - 1]?.value ?? 0) >= 0 ? "#4FAE8C" : "#C9634B";
     }
@@ -1191,22 +1250,24 @@ async function renderItemPanel(tab, request=true){
 
     const { itemStartDate, itemEndDate } = PriceService.getItemStartEndDate(tab.refId, rangeMode)
 
-    //test in range first?
     let raw;
     if (!request){
-      if (Database.hasKey("tabs", "tab-"+tab.id)){
-        raw = Database.get("tabs", "tab-"+tab.id);
+      raw = await Database.get("tabs", "tab-"+tab.id)
+      if (raw){
+        raw= raw["points"];
       }else{
         request=true;
       }
+      console.log("GET")
     }
-    if (request){
+    if (request || !raw){
       raw = await PriceService.getRange(item.id, tab.rangeStart, tab.rangeEnd, interval);
       Database.put("tabs", {
           "id": "tab-"+tab.id,
           points: raw
         }
       );
+      console.log("UPDATE")
     }
 
     const rawPoints = Object.entries(raw).map(([t, price]) => ({ t: Number(t), y: price }));
@@ -1434,6 +1495,7 @@ async function submitHolding(data, edting=false) {
     }
   });
   closeModal();
+  PORTFOLIOS_TO_UPDATE.add(data.portfolioId);
   await renderAll(false);
 }
 
@@ -1616,6 +1678,7 @@ document.addEventListener("click", async (e) => {
     }
     case "set-item-range-mode": {
       const tab = getTab(el.dataset.tabId);
+      const old = tab.rangeMode;
       if (tab) {
         tab.rangeMode = el.dataset.mode;
         if (tab.type=="item"){
@@ -1628,7 +1691,7 @@ document.addEventListener("click", async (e) => {
             tab.rangeEnd = portfolioEndDate;
         }
       }
-      renderAll(true);
+      renderAll(old!=tab.rangeMode);
       break;
     }
     case "close-modal": closeModal(); break;

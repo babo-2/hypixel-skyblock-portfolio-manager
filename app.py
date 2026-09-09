@@ -147,12 +147,11 @@ def index():
     #items=[{ "id": "BOOSTER_COOKIE", "symbol": "BCK", "name": "booster cookie", "COLOR": "#D9A441" }]
     items=[]
     for itemId in ITEMS:
-        if itemId not in BZITEMS:
-            continue#for now only bz
+        if itemId not in BZITEMS and itemId!="SUPERIOR_DRAGON_CHESTPLATE":
+            pass#continue#for now only bz
         items.append({"id": itemId, "symbol": itemId[0:3], "name": ITEMS[itemId]["name"], "COLOR": "#"+hashlib.sha256(itemId.encode()).hexdigest()[:6]})
     portfolios = [to_json_portfolio(portfolio) for portfolio in Portfolio.query.all()]
     return render_template("index.html", items=items, portfolios=portfolios)
-
 
 @app.route("/api/get_range/<item>")
 def get_range(item):
@@ -160,17 +159,10 @@ def get_range(item):
     end_date=int(request.args.get("end_date", "0"))
     interval=int(request.args.get("interval", "0"))
     if item in BZITEMS:
-        item_ranged = api.get_item(f"data/bzItems/{item}.dat", start_date, end_date, interval)
+        return jsonify(api.get_single_price(api.get_item(f"data/bzItems/{item}.dat", start_date, end_date, interval, "bz")))
     else:
-        item_ranged = api.get_item(f"data/ahItems/{item}.dat", start_date, end_date, interval)
-    if False:
-        print("\n".join(map(str, sorted(
-            item_ranged.items(),
-            reverse=True,
-            key=lambda x: (x[1]["MinBuy"] + x[1]["MaxSell"]) / 2
-        )[:5])))
-        print("\n---\n")
-    return jsonify(api.get_single_price(item_ranged))
+        return jsonify(api.get_item(f"data/ahItems/{item}.dat", start_date, end_date, interval, "ah"))
+    
 
 @app.route("/api/get_all/<item>")
 def get_all(item):
