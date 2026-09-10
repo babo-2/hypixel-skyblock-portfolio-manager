@@ -86,6 +86,8 @@ def bz_convert(original: list) -> dict:
             continue
 
         values=clean_prices(item)
+        if not values:
+            continue
         if "sell" not in values:
             if "maxSell" not in values:
                 s+=1
@@ -434,13 +436,22 @@ def download_bz_item_today(item):
 def download_bz_item_this_week(item):
     data_dict = bz_convert(requests.get(f"https://sky.coflnet.com/api/bazaar/{item}/history/week").json())
     insert_bz_data(data_dict, f"data/bzItems/{item}.dat")
-def download_bz_item_history(item):
-    data = requests.get(f"https://sky.coflnet.com/api/bazaar/{item}/history")
-    if data.status_code!=200:
-        print("[ERROR 253] STATUS CODE NOT 200!")
-        return
-    insert_bz_data(bz_convert(data.json()), f"data/bzItems/{item}.dat")
-
+def download_bz_item_history(item)->bool:
+    try:
+        data = requests.get(f"https://sky.coflnet.com/api/bazaar/{item}/history")
+        if data.status_code!=200:
+            print("[ERROR 253] STATUS CODE NOT 200!")
+            return False
+        data_js = data.json()
+        if not data_js:
+            return False
+        converted = bz_convert(data_js)
+        insert_bz_data(converted, f"data/bzItems/{item}.dat")
+        return True
+    except Exception as e:
+        print(e)
+        return False
+    
 #/ahItems/  history  DOWNLOAD
 def download_ah_item_today(item):
     data_dict = ah_convert(requests.get(f"https://sky.coflnet.com/api/item/price/{item}/history/day").json())
@@ -454,12 +465,20 @@ def download_ah_item_this_month(item):
 def download_ah_item_this_year(item):
     data_dict = ah_convert(requests.get(f"https://sky.coflnet.com/api/item/price/{item}/history/year").json())
     insert_ah_data(data_dict, f"data/ahItems/{item}.dat")
-def download_ah_item_history(item):
-    data = requests.get(f"https://sky.coflnet.com/api/item/price/{item}/history/full")
-    if data.status_code!=200:
-        print("[ERROR 253] STATUS CODE NOT 200!")
-        return
-    insert_ah_data(ah_convert(data.json()), f"data/ahItems/{item}.dat")
+def download_ah_item_history(item)->bool:
+    try:
+        data = requests.get(f"https://sky.coflnet.com/api/item/price/{item}/history/full")
+        if data.status_code!=200:
+            print("[ERROR 253] STATUS CODE NOT 200!")
+            return False
+        data_js = data.json()
+        if not data_js:
+            return False
+        insert_ah_data(ah_convert(data_js), f"data/ahItems/{item}.dat")
+        return True
+    except Exception as e:
+        print(e)
+        return False
 
 #/other/
 def download_all_items():
@@ -591,7 +610,6 @@ def fetch_new_live_ah_data():
         #cache instead?
         with open(f"data/ahItems/{item}.dat", "ab") as f:
             f.write(struct.pack(BZ_FORMAT, ts, price))
-
 
 def save_info():
     with open("data/other/bz.json", "r") as f:
@@ -756,9 +774,17 @@ def is_illegal_windows_filename(filename: str) -> bool:
 #item="BONZO_MASK"
 #print(get_item(f"data/ahItems/{item}.dat", start_date, end_date, interval, "ah"))
 #save_info()
+#quit()
 
 if __name__ == "__main__":
-    print("DOING")
+    print("DOWNLOAD DATA")
+    try:
+        with open("data/other/IGNORED.json", "r") as f:
+            IGNORED:list= json.load(f)
+    except Exception as e:
+        IGNORED = []
+        with open("data/other/IGNORED.json", "w") as f:
+            json.dump([], f)
     with open("data/other/AllItems.json", "r") as f:
         ITEMS = json.load(f)
     with open("data/other/bzItems.json", "r") as f:
@@ -769,20 +795,28 @@ if __name__ == "__main__":
     ALL_ITEMS_HAVE = AH_ITEMS_HAVE+BZ_ITEMS_HAVE
 
     total_amount = len(ITEMS)
-    have_amount=len(ALL_ITEMS_HAVE)
+    have_amount=0#len(ALL_ITEMS_HAVE)
 
     for item in ITEMS:
         try:
             have_amount+=1
-            if ignore_item(item):
+            if ignore_item(item) or item["tag"] in IGNORED:
                 continue
             if item["tag"] in ALL_ITEMS_HAVE:
                 continue
             print(item["tag"])
+            flags = item["flags"]
+            if not flags or flags == "NONE":
+                continue
             if item["tag"] in BZ_ITEMS:
-                download_bz_item_history(item["tag"])
+                result = download_bz_item_history(item["tag"])
             else:
-                download_ah_item_history(item["tag"])
+                result = download_ah_item_history(item["tag"])
+            if not result:
+                print("ADD TO IGNORE")
+                IGNORED.append(item["tag"])
+                with open("data/other/IGNORED.json", "w") as f:
+                    json.dump(IGNORED, f)
             print(f"{round((have_amount/total_amount)*100, 2)}%")
             time.sleep(0.6)
         except Exception as e:
@@ -794,4 +828,3 @@ if __name__ == "__main__":
 
 #print(get_item("data/ahItems/SUPERIOR_DRAGON_CHESTPLATE.dat",0, int(time.time()), 0, type="ah"))
 
-#save_info()

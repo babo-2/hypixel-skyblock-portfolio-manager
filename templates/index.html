@@ -756,10 +756,10 @@ function itemRowHtml(it) {
   const active = activeTab && activeTab.type === "item" && activeTab.refId === it.id;
   return `
     <div class="row row-item ${active ? "active" : ""}" data-action="open-item" data-id="${it.id}">
-      ${iconAvatarHtml(it.symbol, it.color, 28)}
+      ${iconAvatarHtml(it.name, it.color, 28)}
       <div class="row-main">
-        <div class="row-title mono">${escapeHtml(it.symbol)}</div>
-        <div class="row-sub">${escapeHtml(it.name)}</div>
+        <div class="row-title mono">${escapeHtml(it.name)}</div>
+        <div class="row-sub">${escapeHtml(it.id)}</div>
       </div>
       <div class="row-quote">
         <div class="row-price mono">${fmtMoney(q.currentPrice)}</div>
@@ -781,7 +781,7 @@ function renderItemRows() {
   if (!container) return;
   const f = ui.itemFilter.trim().toLowerCase();
   const filtered = f
-    ? state.items.filter((it) => it.symbol.toLowerCase().includes(f) || it.name.toLowerCase().includes(f))
+    ? state.items.filter((it) => it.id.toLowerCase().includes(f) || it.name.toLowerCase().includes(f))
     : state.items;
   container.innerHTML = filtered.map(itemRowHtml).join("");
 }
@@ -843,7 +843,7 @@ function renderSidebar() {
 
 function tabLabel(tab) {
   if (tab.type === "default") return "Overview";
-  if (tab.type === "item") return itemsById[tab.refId]?.symbol ?? "Unknown";
+  if (tab.type === "item") return itemsById[tab.refId]?.name ?? "Unknown";
   return portfolioById(tab.refId)?.name ?? "Unknown";
 }
 
@@ -902,7 +902,6 @@ function tickFormatter(t, interval) {
 }
 
 function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, startDate, endDate) {
-  console.log("END:",endDate)
   const fmt = valueFormatter ?? fmtMoney;
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -935,7 +934,6 @@ function mountLineChart(canvasId, points, interval, lineColor, valueFormatter, s
     x: p.t,
     y: p.y
   }));
-  console.log(chartData)
 
   mainChart = new Chart(canvas.getContext("2d"), {
     type: "line",
@@ -1105,8 +1103,8 @@ function renderDefaultPanel() {
               const q = ItemInfoService.INFO[it.id] ?? { currentPrice: 0, change: 0 };
               return `
                 <div class="overview-card" data-action="open-item" data-id="${it.id}">
-                  ${iconAvatarHtml(it.symbol, it.color, 26)}
-                  <div class="overview-card-title mono">${escapeHtml(it.symbol)}</div>
+                  ${iconAvatarHtml(it.name, it.color, 26)}
+                  <div class="overview-card-title mono">${escapeHtml(it.name)}</div>
                   <div class="overview-card-sub">${fmtMoney(q.currentPrice)} ${changeBadgeHtml(q.change)}</div>
                 </div>`;
             }).join("")}
@@ -1185,7 +1183,7 @@ async function renderPortfolioPanel(tab, request=true) {
     const gain = total ? ((curValue - total) / total) * 100 : 0;
     return `
       <tr>
-        <td><div class="table-item">${iconAvatarHtml(it?.symbol ?? "?", it?.color ?? "#888", 22)}<span class="mono">${escapeHtml(it?.symbol ?? h.itemId)}</span></div></td>
+        <td><div class="table-item">${iconAvatarHtml(it?.name ?? "?", it?.color ?? "#888", 22)}<span class="mono">${escapeHtml(it?.name ?? h.itemId)}</span></div></td>
         <td>${unixToDateStr(h.date)}</td>
         <td class="mono">${h.amount}</td>
         <td class="mono">${fmtMoney(h.pricePerUnit)}</td>
@@ -1288,9 +1286,9 @@ async function renderItemPanel(tab, request=true){
       <div class="panel">
         <div class="panel-header item-header">
           <div class="item-header-left">
-            ${iconAvatarHtml(item.symbol, item.color, 34)}
+            ${iconAvatarHtml(item.name, item.color, 34)}
             <div>
-              <h2 class="mono">${escapeHtml(item.symbol)}</h2>
+              <h2 class="mono">${escapeHtml(item.name)}</h2>
               <p class="panel-sub">${escapeHtml(item.name)}</p>
               <p class="listed-since">Listed since ${unixToDateStr(info.startDate)}</p>
             </div>
@@ -1554,7 +1552,7 @@ function openHoldingModal({ mode, itemId, portfolioId, holding }) {
       <div class="modal">
         <div class="modal-header"><h3>${mode === "add" ? "Add to portfolio" : "Edit holding"}</h3><button class="icon-btn" data-action="close-modal">${iconSvg("x")}</button></div>
         <div class="modal-body">
-          <div class="modal-item-row">${iconAvatarHtml(item.symbol, item.color, 28)}<div><div class="row-title mono">${escapeHtml(item.symbol)}</div><div class="row-sub">${escapeHtml(item.name)}</div></div></div>
+          <div class="modal-item-row">${iconAvatarHtml(item.name, item.color, 28)}<div><div class="row-title mono">${escapeHtml(item.name)}</div><div class="row-sub">${escapeHtml(item.name)}</div></div></div>
           ${portfolioSelectHtml}
           <div class="form-grid">
             <label><span>Buy date</span><input type="date" id="buy-date" value="${initialDate}"></label>
