@@ -771,10 +771,38 @@ def is_illegal_windows_filename(filename: str) -> bool:
 
     return False
 
+def download_skins():
+    data={}
+    with open("data/other/AllItems.json", "r") as f:
+        ITEMS = json.load(f)
+    for item in ITEMS:
+        if not item["name"] or not item["tag"]:
+            continue
+        if "PET_SKIN" in item["tag"]:
+            data[item["tag"]] = {"name": item["name"], "type": "PET"}
+        elif "Power Orb Skin" in item["name"]:
+            data[item["tag"]] = {"name": item["name"], "type": "FLUX"}
+        elif " PET" in item["name"]:
+            data[item["tag"]] = {"name": item["name"], "type": "HELMET"}
+    with open("data/other/skins.json", "w") as f:
+        json.dump(data, f)
+
+def convert_skin_data():
+    data={}
+    with open("data/other/skins.json", "r") as f:
+        SKINS = json.load(f)
+    for skin in SKINS:
+        if not os.path.exists("data/ahItems/"+skin+".dat"):
+            continue
+        data[skin]=get_item("data/ahItems/"+skin+".dat", 0, int(time.time()), 0, type="ah")
+    with open("data/other/SkinData.json", "w") as f:
+        json.dump(data, f)
+
+
 #item="BONZO_MASK"
 #print(get_item(f"data/ahItems/{item}.dat", start_date, end_date, interval, "ah"))
 #save_info()
-#quit()
+quit()
 
 if __name__ == "__main__":
     print("DOWNLOAD DATA")
